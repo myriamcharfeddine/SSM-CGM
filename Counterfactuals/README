@@ -1,0 +1,4 @@
+Scenariosv4.py is the counterfactuals running script.
+cfMES576_HR.ipynb and cfMES576_RR.ipynb is running counterfactuals for HR and RR.
+clinicalcorrv2.ipynb has the figures for counterfactual effects.
+Plausibility.ipynb has the info on supplementary figures related to counterfactuals within certain time of day.
