@@ -1,0 +1,53 @@
+Any edits to the scripts need to be uploaded to GCS!!! BEFORE RUNNING
+
+For the scripts in this folder:
+gcloud storage cp mamba2_288_mesv2.py gs://cgmproject2025/scripts/mamba/mamba2_288_mesv2.py
+gcloud storage cp mamba2_288_mes.py gs://cgmproject2025/scripts/mamba/mamba2_288_mes.py
+gcloud storage cp mamba288.py gs://cgmproject2025/scripts/mamba/mamba288.py
+gcloud storage cp tft_meal_c288.py gs://cgmproject2025/scripts/tft/tft_meal_c288.py
+
+Then launch the yaml file to run on Google Cloud Batch:
+gcloud batch jobs submit [INSERTNAME] \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=[INSERTCONFIG].yaml
+
+EXAMPLES:
+----------------
+gcloud batch jobs submit "mamba288mesv2-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=mamba288_mesv2.yaml
+
+gcloud batch jobs submit "mamba288mes-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=mamba288_mes.yaml
+
+gcloud batch jobs submit "mamba288-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=mamba288.yaml
+
+gcloud batch jobs submit "tft288-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=tft288.yaml
+
+-----------------
+IMPORTANT 
+[INSERTNAME] has to be unique name that has not been used int he batch job before (OR IT WILL ERROR)
+[INSERTCONFIG] is the name of the yaml file you are running on google cloud batch with the configurations set
+
+-----------------
+ALL FILES should use:
+train_finaltimeseries_meal.feather as the dataset
+Quantile Loss: [0.1, 0.5, 0.9]
+
+For Mamba1 and Mamba2 script the same hyperparameters were used to compare if CONTEXT LENGTH increases performance!!
+For Mamba and TFT the same learning rate and batch size were used for comparison: lr = 1e-3, batch_size = 32. 
+But other hyperparameters differed to optimize performance for each model.
+
+WHEN RUNNING FILES MAKE SURE THE gcs_prefix is DIFFERENT FOR EACH FILE OR YOU END UP OVERWRITING THE CHECKPOINTS
+gcs_prefix="checkpoints_mamba576_MESqmv2"
+gcs_ckpt_prefix = "checkpoints_mamba576_MESqmv2"
