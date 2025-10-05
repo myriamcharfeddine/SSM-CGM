@@ -1,0 +1,28 @@
+taskGroups:
+  - taskCount: 1
+    taskSpec:
+      maxRetryCount: 4
+      computeResource:
+        cpuMilli: 48000        # 48 vCPUs × 1000
+        memoryMib: 348160      # 340 GB × 1024 MiB/GB
+      volumes:
+        - gcs:
+            remotePath: cgmproject2025/scripts/sota
+          mountPath: /mnt/disks/scripts
+      runnables:
+        - container:
+            imageUri: us-central1-docker.pkg.dev/cgmsy-467321/cgm-base-env/gpu-base:latest
+            entrypoint: "/opt/micromamba/envs/cgmenv/bin/python"
+            commands:
+              - "/mnt/disks/scripts/NHITS288v8.py"
+allocationPolicy:
+  instances:
+    - policy:
+        machineType: a2-highgpu-4g # 4x NVIDIA A100 GPUs
+        provisioningModel: SPOT   # makes it preemptible (cheaper)
+        bootDisk:
+          sizeGb: 300
+      installGpuDrivers: true
+      #installOpsAgent: true  #To Check Memory Usage
+logsPolicy:
+  destination: CLOUD_LOGGING

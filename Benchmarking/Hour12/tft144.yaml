@@ -1,0 +1,28 @@
+taskGroups:
+  - taskCount: 1
+    taskSpec:
+      maxRetryCount: 4
+      computeResource:
+        cpuMilli: 48000        # 48 vCPUs × 1000
+        memoryMib: 196608 #348160      # 340 GB × 1024 MiB/GB
+      volumes:
+        - gcs:
+            remotePath: cgmproject2025/scripts/tft
+          mountPath: /mnt/disks/scripts
+      runnables:
+        - container:
+            imageUri: us-central1-docker.pkg.dev/cgmsy-467321/cgm-base-env/gpu-base:latest
+            entrypoint: "/opt/micromamba/envs/cgmenv/bin/python"
+            commands:
+              - "/mnt/disks/scripts/tft144.py"
+allocationPolicy:
+  instances:
+    - policy:
+        machineType: g2-standard-48 #a2-highgpu-4g # 4x NVIDIA A100 GPUs
+        provisioningModel: STANDARD #SPOT   # makes it preemptible (cheaper)
+        bootDisk:
+          sizeGb: 500
+      installGpuDrivers: true
+      #installOpsAgent: true  #To Check Memory Usage
+logsPolicy:
+  destination: CLOUD_LOGGING

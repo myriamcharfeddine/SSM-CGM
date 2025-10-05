@@ -1,0 +1,113 @@
+Any edits to the scripts need to be uploaded to GCS!!! BEFORE RUNNING
+
+For the scripts in this folder:
+gcloud storage cp DeepAR288.py gs://cgmproject2025/scripts/sota/DeepAR288.py
+gcloud storage cp LSTM288.py gs://cgmproject2025/scripts/sota/LSTM288.py
+gcloud storage cp NHITS288.py gs://cgmproject2025/scripts/sota/NHITS288.py
+gcloud storage cp TimeXer288.py gs://cgmproject2025/scripts/sota/TimeXer288.py
+gcloud storage cp NHITS288v2.py gs://cgmproject2025/scripts/sota/NHITS288v2.py
+gcloud storage cp NHITS288v3.py gs://cgmproject2025/scripts/sota/NHITS288v3.py
+gcloud storage cp NHITS288v4.py gs://cgmproject2025/scripts/sota/NHITS288v4.py
+gcloud storage cp NHITS288v5.py gs://cgmproject2025/scripts/sota/NHITS288v5.py
+gcloud storage cp NHITS288v6.py gs://cgmproject2025/scripts/sota/NHITS288v6.py
+gcloud storage cp NHITS288v7.py gs://cgmproject2025/scripts/sota/NHITS288v7.py
+gcloud storage cp NHITS288v8.py gs://cgmproject2025/scripts/sota/NHITS288v8.py
+gcloud storage cp NHITS288v9.py gs://cgmproject2025/scripts/sota/NHITS288v9.py
+gcloud storage cp NHITS288v10.py gs://cgmproject2025/scripts/sota/NHITS288v10.py
+
+
+
+
+
+Then launch the yaml file to run on Google Cloud Batch:
+gcloud batch jobs submit [INSERTNAME] \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=[INSERTCONFIG].yaml
+
+EXAMPLES:
+----------------
+gcloud batch jobs submit "deepar288-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=DeepAR288.yaml
+
+gcloud batch jobs submit "lstm288-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=LSTM288.yaml
+
+gcloud batch jobs submit "nhits288-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=NHITS288.yaml
+
+  gcloud batch jobs submit "nhits288v2-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=NHITS288v2.yaml
+
+  gcloud batch jobs submit "nhits288v3-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=NHITS288v3.yaml
+
+
+  gcloud batch jobs submit "nhits288v4-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=NHITS288v4.yaml
+
+  gcloud batch jobs submit "nhits288v5-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=NHITS288v5.yaml
+
+  gcloud batch jobs submit "nhits288v6-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=NHITS288v6.yaml
+
+  gcloud batch jobs submit "nhits288v7-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=NHITS288v7.yaml
+
+  gcloud batch jobs submit "nhits288v8-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=NHITS288v8.yaml
+
+  gcloud batch jobs submit "nhits288v9-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=NHITS288v9.yaml
+
+  gcloud batch jobs submit "nhits288v10-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=NHITS288v10.yaml
+
+
+gcloud batch jobs submit "timexer288-$(date +%Y%m%d-%H%M%S)" \
+  --project=cgmsy-467321 \
+  --location=us-central1 \
+  --config=TimeXer288.yaml
+
+-----------------
+IMPORTANT 
+[INSERTNAME] has to be unique name that has not been used int he batch job before (OR IT WILL ERROR)
+[INSERTCONFIG] is the name of the yaml file you are running on google cloud batch with the configurations set
+
+-----------------
+ALL FILES should use:
+train_finaltimeseries_meal.feather as the dataset
+Quantile Loss: [0.1, 0.5, 0.9]
+
+For Mamba1 and Mamba2 script the same hyperparameters were used to compare if CONTEXT LENGTH increases performance!!
+For Mamba and TFT the same learning rate and batch size were used for comparison: lr = 1e-3, batch_size = 32. 
+But other hyperparameters differed to optimize performance for each model.
+
+WHEN RUNNING FILES MAKE SURE THE gcs_prefix is DIFFERENT FOR EACH FILE OR YOU END UP OVERWRITING THE CHECKPOINTS
+gcs_prefix="checkpoints_mamba576_MESqmv2"
+gcs_ckpt_prefix = "checkpoints_mamba576_MESqmv2"
