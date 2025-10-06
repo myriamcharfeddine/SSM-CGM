@@ -1,0 +1,25 @@
+name: ssmcgm
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - numpy
+  - pandas
+  - matplotlib
+  - scikit-learn
+  - pyarrow
+  - matplotlib
+  - pip
+  - pip:
+      - triton>=3.3,<3.5          # NEW: brings CUDA-12.8-ready Triton 3.x
+      - mamba-ssm==2.2.5
+      - pytorch-forecasting==1.4.0  # CUDA/PyTorch binaries come from the base image, so only the extras:
+      - pytorch-lightning==2.5.2
+      - einops==0.8.1
+      - causal-conv1d==1.5.2
+      - huggingface-hub
+      - transformers==4.54.1
+      - regex
+      - safetensors
+      - fsspec
+      - google-cloud-storage
