@@ -96,7 +96,7 @@ If you use this work, please cite:
 
 ---
 
-## 👥 Authors
+## Authors
 
 - **Shakson Isaac**, Harvard Medical School  
 - **Yentl Collin**, Harvard Medical School / ENPC  
@@ -104,6 +104,6 @@ If you use this work, please cite:
 
 ---
 
-## 📜 License
+## License
 This project is distributed under a **custom research license**.  
 Usage and redistribution are subject to the terms described in `LICENSE`.
