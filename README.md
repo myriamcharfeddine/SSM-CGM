@@ -4,7 +4,7 @@
 > **Isaac, S., Collin, Y., & Patel, C.J. (2025).**  
 > *SSM-CGM: Interpretable State-Space Forecasting Model of Continuous Glucose Monitoring for Personalized Diabetes Management.*  
 > Accepted at the *NeurIPS 2025 Workshop on Learning from Time Series for Health (TS4H)*.  
-> Preprint available on [arXiv](https://arxiv.org/).
+> Preprint available on [arXiv:2510.04386](https://arxiv.org/abs/2510.04386)
 
 ---
 
@@ -88,7 +88,7 @@ If you use this work, please cite:
 @article{isaac2025ssmcgm,
   title={SSM-CGM: Interpretable State-Space Forecasting Model of Continuous Glucose Monitoring for Personalized Diabetes Management},
   author={Isaac, Shakson and Collin, Yentl and Patel, Chirag J.},
-  journal={arXiv preprint},
+  journal={arXiv preprint arXiv:2510.04386 [cs.LG]},
   year={2025},
   note={Accepted at the NeurIPS 2025 Workshop on Learning from Time Series for Health (TS4H)}
 }
