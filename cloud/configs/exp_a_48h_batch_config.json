@@ -1,0 +1,58 @@
+{
+  "taskGroups": [
+    {
+      "taskSpec": {
+        "computeResource": {
+          "cpuMilli": "48000",
+          "memoryMib": "348160"
+        },
+        "maxRetryCount": 1,
+        "runnables": [
+          {
+            "container": {
+              "imageUri": "us-central1-docker.pkg.dev/cgmsy-467321/cgm-base-env/gpu-base:latest",
+              "entrypoint": "/bin/bash",
+              "commands": ["/mnt/disks/scripts/run_exp_A_48h_cloud.sh"],
+              "volumes": ["/mnt/disks/scripts:/mnt/disks/scripts:rw"]
+            }
+          }
+        ],
+        "volumes": [
+          {
+            "gcs": {
+              "remotePath": "cgmproject2025/scripts/SSMCGM"
+            },
+            "mountPath": "/mnt/disks/scripts"
+          }
+        ]
+      },
+      "parallelism": "1",
+      "taskCount": "1"
+    }
+  ],
+  "allocationPolicy": {
+    "instances": [
+      {
+        "installGpuDrivers": true,
+        "policy": {
+          "machineType": "a2-highgpu-4g",
+          "provisioningModel": "STANDARD",
+          "bootDisk": {
+            "sizeGb": "300"
+          }
+        }
+      }
+    ],
+    "location": {
+      "allowedLocations": [
+        "regions/us-central1"
+      ]
+    },
+    "serviceAccount": {
+      "email": "711527036681-compute@developer.gserviceaccount.com"
+    }
+  },
+  "logsPolicy": {
+    "destination": "CLOUD_LOGGING"
+  }
+}
