@@ -32,14 +32,13 @@ It integrates CGM with physiological signals such as **heart rate, respiration, 
 
 ## Current Extension Work
 
-This fork/working branch foregrounds Myriam Charfeddine's extensions beyond the original SSM-CGM codebase: enriched multimodal clinical data construction, participant-disjoint Experiment C, dynamic + static forecasting, cloud-scale training, per-participant personalization, and subgroup analysis. See [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md) for the added strategy and code map.
+This fork/working branch foregrounds Myriam Charfeddine's extensions beyond the original SSM-CGM codebase: enriched multimodal clinical data construction, participant-disjoint Experiment C, dynamic + static forecasting, private cloud-scale training, per-participant personalization, and subgroup analysis. See [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md) for the added strategy and code map.
 
 ## Repository Structure
 
 ```
 SSM-CGM/
 ├── Preprocessing/           # Myriam's enriched data, cohort, and Experiment C split pipeline
-├── cloud/                   # Google Batch scripts/configs for A/B/C and personalization runs
 ├── Benchmarking/            # Forecasting experiments, Experiment A/B/C, personalization, metrics
 ├── Counterfactuals/         # Counterfactual simulations & plausibility checks
 ├── Interpretability/        # Variable and temporal attribution analyses
