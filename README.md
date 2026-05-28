@@ -101,17 +101,3 @@ If you use this work, please cite:
   note={Accepted at the NeurIPS 2025 Workshop on Learning from Time Series for Health (TS4H)}
 }
 ```
-
----
-
-## Authors
-
-- **Shakson Isaac**, Harvard Medical School  
-- **Yentl Collin**, Harvard Medical School / ENPC  
-- **Chirag J. Patel**, Harvard Medical School  
-
----
-
-## License
-This project is distributed under a **custom research license**.  
-Usage and redistribution are subject to the terms described in `LICENSE`.
