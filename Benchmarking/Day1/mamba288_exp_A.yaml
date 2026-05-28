@@ -1,0 +1,41 @@
+taskGroups:
+  - taskCount: 1
+    taskSpec:
+      maxRetryCount: 4
+      computeResource:
+        cpuMilli: 48000      # 48 vCPUs
+        memoryMib: 348160    # 340 GB
+      volumes:
+        - gcs:
+            remotePath: cgmproject2025/scripts/SSMCGM
+          mountPath: /mnt/disks/scripts
+        - gcs:
+            remotePath: cgmproject2025/ai-ready/multimodal
+          mountPath: /mnt/disks/data
+        - gcs:
+            remotePath: cgmproject2025/results/exp_A_full
+          mountPath: /mnt/disks/results
+      runnables:
+        - container:
+            imageUri: us-central1-docker.pkg.dev/cgmsy-467321/cgm-base-env/gpu-base:latest
+            entrypoint: "/opt/micromamba/envs/cgmenv/bin/python"
+            commands:
+              - "/mnt/disks/scripts/mamba288_local.py"
+              - "--train"
+              - "/mnt/disks/data/train_timeseries.feather"
+              - "--test"
+              - "/mnt/disks/data/test_timeseries.feather"
+              - "--out"
+              - "/mnt/disks/results"
+              - "--epochs"
+              - "30"
+allocationPolicy:
+  instances:
+    - policy:
+        machineType: a2-highgpu-4g
+        provisioningModel: SPOT
+        bootDisk:
+          sizeGb: 300
+      installGpuDrivers: true
+logsPolicy:
+  destination: CLOUD_LOGGING

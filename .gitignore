@@ -205,3 +205,20 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project-generated artifacts and private data
+.DS_Store
+**/.DS_Store
+lightning_logs/
+**/lightning_logs/
+checkpoints/
+**/checkpoints/
+results/
+**/results/
+Data/
+**/Data/
+*.ckpt
+*.parquet
+*.feather
+*.csv
+*.tsv
