@@ -32,17 +32,20 @@ It integrates CGM with physiological signals such as **heart rate, respiration, 
 
 ## Current Extension Work
 
-This repository now includes an active CGM forecasting extension focused on static clinical covariates, participant-disjoint evaluation, cloud-scale Experiment C training, and participant-level head adaptation. See [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md) for the current experiment plan, implementation status, and privacy notes.
+This fork/working branch foregrounds Myriam Charfeddine's extensions beyond the original SSM-CGM codebase: enriched multimodal clinical data construction, participant-disjoint Experiment C, dynamic + static forecasting, cloud-scale training, per-participant personalization, and subgroup analysis. See [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md) for the added strategy and code map.
 
 ## Repository Structure
 
 ```
 SSM-CGM/
-├── Benchmarking/            # Forecasting experiments & metrics
+├── Preprocessing/           # Myriam's enriched data, cohort, and Experiment C split pipeline
+├── cloud/                   # Google Batch scripts/configs for A/B/C and personalization runs
+├── Benchmarking/            # Forecasting experiments, Experiment A/B/C, personalization, metrics
 ├── Counterfactuals/         # Counterfactual simulations & plausibility checks
 ├── Interpretability/        # Variable and temporal attribution analyses
 ├── MealDetection/           # CNN-BiLSTM meal detection model (CGMacros)
 ├── Miscellaneous/           # Embedding visualizations & error analyses
+├── PROJECT_PROGRESS.md      # Summary of Myriam's current CGM project extensions
 ├── SSM_CGM.py               # Core model implementation
 ├── LICENSE
 └── README.md
