@@ -29,6 +29,11 @@ It integrates CGM with physiological signals such as **heart rate, respiration, 
 
 ---
 
+
+## Current Extension Work
+
+This repository now includes an active CGM forecasting extension focused on static clinical covariates, participant-disjoint evaluation, cloud-scale Experiment C training, and participant-level head adaptation. See [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md) for the current experiment plan, implementation status, and privacy notes.
+
 ## Repository Structure
 
 ```
