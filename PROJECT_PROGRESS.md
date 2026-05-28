@@ -41,7 +41,6 @@ The original repository centered on the SSM-CGM model, benchmarking, interpretab
 | Personalization | `Benchmarking/Day1/personalize_exp_C_head.py` | Per-participant head adaptation from a global Experiment C checkpoint. |
 | Subgroup analysis | `Benchmarking/Day1/subgroup_analysis.py` | Analyze personalization improvements by clinical subgroup. |
 | Adaptation sweep | `Benchmarking/Day1/sweep_adaptation.py` | Sweep adaptation windows and fine-tuning settings. |
-| Cloud execution | `cloud/scripts/`, `cloud/configs/` | Google Batch scripts and configs for Experiment A/B/C and personalization runs. |
 
 ## Current Experiment C Strategy
 
@@ -52,7 +51,7 @@ The active strategy is built around a more deployment-like setting:
 - Use dynamic CGM/wearable inputs plus static clinical covariates.
 - Exclude participant ID from predictive static embeddings by default.
 - Use rolling-window evaluation where possible rather than one last window per participant.
-- Run cloud training with up to 20 epochs, at least 10 epochs, and early stopping patience of 5 validation checks.
+- Run long training jobs privately with up to 20 epochs, at least 10 epochs, and early stopping patience of 5 validation checks.
 - Run final rolling-window evaluation and personalization separately from the main training job.
 
 ## Privacy and Data Policy
@@ -63,7 +62,7 @@ This repository is intended to publish code, experiment design, and reproducible
 - clinical CSV/parquet/feather exports;
 - participant-level generated predictions;
 - model checkpoints;
-- Lightning logs and cloud result folders.
+- Lightning logs and private cloud result folders.
 
 Local paths in scripts reflect the working environment used for development. They can be changed through script arguments or path constants when reproducing the workflow elsewhere.
 
