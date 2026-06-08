@@ -395,6 +395,7 @@ def personalize_split(
     feather_df: pd.DataFrame,
     pers_df: pd.DataFrame,
     out_dir: Path,
+    stratum_map: Optional[dict] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     For each participant in pers_df:
@@ -506,6 +507,7 @@ def personalize_split(
         results.append({
             "participant_id":         pid,
             "split":                  split,
+            "stratum":                (stratum_map or {}).get(pid, "unknown"),
             "n_adaptation_windows":   n_adapt,
             "n_evaluation_windows":   n_eval,
             "global_rmse":            g_metrics["rmse"],
@@ -573,6 +575,28 @@ def print_summary(results_df: pd.DataFrame, split: str) -> None:
         if key == "mae":
             med = results_df["mae_improvement"].median()
             print(f"  MAE improvement (median) : {med:.4f}")
+        print()
+
+    # ── Per-stratum breakdown ──────────────────────────────────────────────────
+    if "stratum" in results_df.columns and results_df["stratum"].nunique() > 1:
+        print(f"  {'─'*58}")
+        print(f"  PER-STRATUM BREAKDOWN")
+        print(f"  {'─'*58}")
+        print(f"  {'Stratum':<18} {'n':>4}  {'%imp':>5}  "
+              f"{'gMAE':>7}  {'pMAE':>7}  {'ΔMAE':>7}  "
+              f"{'gRMSE':>7}  {'pRMSE':>7}")
+        for stratum, grp in results_df.groupby("stratum"):
+            n_s    = len(grp)
+            imp_s  = grp["improved_mae"].mean() * 100
+            g_mae  = grp["global_mae"].mean()
+            p_mae  = grp["personalized_mae"].mean()
+            d_mae  = grp["mae_improvement"].mean()
+            g_rmse = grp["global_rmse"].mean()
+            p_rmse = grp["personalized_rmse"].mean()
+            sign   = "+" if d_mae > 0 else ""
+            print(f"  {stratum:<18} {n_s:>4}  {imp_s:>4.0f}%  "
+                  f"{g_mae:>7.3f}  {p_mae:>7.3f}  {sign}{d_mae:>6.3f}  "
+                  f"{g_rmse:>7.3f}  {p_rmse:>7.3f}")
         print()
     print(f"{'='*62}\n")
 
@@ -668,13 +692,30 @@ if __name__ == "__main__":
     # blocks pytorch-forecasting/pandas classes stored in Lightning checkpoints.
     # Patch torch.load to keep weights_only=False for checkpoints from this
     # trusted environment (same machine that created them).
+    # Also force map_location="cpu" on CPU-only machines: Lightning derives the
+    # target device from the first tensor in the state_dict, so loading to CPU
+    # makes it call model.to("cpu") instead of model.to("cuda:0").
     import functools as _functools
     _orig_load = torch.load
     @_functools.wraps(_orig_load)
     def _patched_load(f, *_a, **_kw):
-        _kw["weights_only"] = False  # force override — Lightning passes True explicitly
+        _kw["weights_only"] = False
+        if not torch.cuda.is_available():
+            _kw["map_location"] = "cpu"
         return _orig_load(f, *_a, **_kw)
     torch.load = _patched_load
+
+    # torchmetrics Metric._apply creates a dummy tensor on self._device (still
+    # "cuda:0" from the checkpoint) to update its device attribute, before the
+    # device has actually been changed — crashes on CPU-only machines.
+    # Reset _device to CPU first so the dummy tensor is safely created on CPU.
+    if not torch.cuda.is_available():
+        from torchmetrics import Metric as _TorchMetric
+        _orig_tm_apply = _TorchMetric._apply
+        def _safe_tm_apply(self, fn):
+            self._device = torch.device("cpu")
+            return _orig_tm_apply(self, fn)
+        _TorchMetric._apply = _safe_tm_apply
 
     args = parse_args()
 
@@ -754,6 +795,18 @@ if __name__ == "__main__":
     pers_df["participant_id"] = pers_df["participant_id"].astype(str)
     print(f"[Pers windows] {len(pers_df)} participants from {pers_csv.name}")
 
+    # ── Load stratum map ──────────────────────────────────────────────────────
+    stratum_map: dict = {}
+    split_participants_csv = args.split_dir / "split_participants.csv"
+    if split_participants_csv.exists():
+        sp = pd.read_csv(split_participants_csv)
+        sp["participant_id"] = sp["participant_id"].astype(str)
+        stratum_map = dict(zip(sp["participant_id"], sp["stratum"]))
+        strata_present = sp[sp["split"] == args.split]["stratum"].value_counts().to_dict()
+        print(f"[Stratum map]  {len(stratum_map)} total | {args.split}: {strata_present}")
+    else:
+        print(f"[Stratum map]  split_participants.csv not found — stratum will be 'unknown'")
+
     # ── Rebuild training TSDS ─────────────────────────────────────────────────
     print("\n[Training TSDS] Rebuilding from train feather ...")
     training = build_training_tsds(train_df, param_24h, extra_static_reals)
@@ -763,7 +816,13 @@ if __name__ == "__main__":
 
     # ── Load global model ─────────────────────────────────────────────────────
     print(f"\n[Global model] Loading checkpoint ...")
-    global_tft = MambaTFT.load_from_checkpoint(str(ckpt_path), weights_only=False)
+    # weights_only is NOT a valid load_from_checkpoint parameter in Lightning ≤2.5.x
+    # (it was added in v2.6). Passing it there causes it to leak into the model
+    # __init__ kwargs and crash with TypeError. The torch.load patch above already
+    # forces weights_only=False at the lower level, so we must NOT pass it here.
+    # map_location IS a valid explicit parameter in all Lightning versions.
+    map_loc = "cuda" if torch.cuda.is_available() else "cpu"
+    global_tft = MambaTFT.load_from_checkpoint(str(ckpt_path), map_location=map_loc)
     global_tft.eval()
     n_params = sum(p.numel() for p in global_tft.parameters())
     print(f"  {n_params / 1e6:.2f}M parameters")
@@ -773,7 +832,8 @@ if __name__ == "__main__":
 
     # ── Run personalization ───────────────────────────────────────────────────
     results_df, pred_gdf, pred_pdf, skipped_df = personalize_split(
-        args, global_tft, training, feather_df, pers_df, out_dir
+        args, global_tft, training, feather_df, pers_df, out_dir,
+        stratum_map=stratum_map,
     )
 
     # ── Save outputs ──────────────────────────────────────────────────────────
@@ -805,6 +865,35 @@ if __name__ == "__main__":
         summary_path = out_dir / f"personalization_summary_{split}.csv"
         summary.to_csv(summary_path, index=False)
         print(f"  Summary      → {summary_path}")
+
+        # ── Per-stratum summary ───────────────────────────────────────────────
+        if "stratum" in results_df.columns and results_df["stratum"].nunique() > 1:
+            stratum_rows = []
+            for stratum, grp in results_df.groupby("stratum"):
+                n_s = len(grp)
+                n_imp_s = int(grp["improved_mae"].sum())
+                stratum_rows.append({
+                    "split":                  split,
+                    "stratum":                stratum,
+                    "n_participants":         n_s,
+                    "n_improved_mae":         n_imp_s,
+                    "pct_improved_mae":       round(n_imp_s / n_s * 100, 2) if n_s else 0,
+                    "mean_global_mae":        round(grp["global_mae"].mean(), 4),
+                    "mean_personalized_mae":  round(grp["personalized_mae"].mean(), 4),
+                    "mean_mae_improvement":   round(grp["mae_improvement"].mean(), 4),
+                    "median_mae_improvement": round(grp["mae_improvement"].median(), 4),
+                    "mean_global_rmse":       round(grp["global_rmse"].mean(), 4),
+                    "mean_personalized_rmse": round(grp["personalized_rmse"].mean(), 4),
+                    "mean_global_tir":        round(grp["global_tir"].mean(), 4),
+                    "mean_personalized_tir":  round(grp["personalized_tir"].mean(), 4),
+                    "adapt_epochs":           args.adapt_epochs,
+                    "adapt_h_cap":            args.adapt_h_cap,
+                    "unfreeze_mode":          args.unfreeze_mode,
+                })
+            stratum_df = pd.DataFrame(stratum_rows)
+            stratum_path = out_dir / f"personalization_stratum_{split}.csv"
+            stratum_df.to_csv(stratum_path, index=False)
+            print(f"  Stratum      → {stratum_path}")
 
         if len(pred_gdf) > 0:
             gp = out_dir / f"predictions_global_{split}.parquet"

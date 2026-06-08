@@ -30,9 +30,17 @@ It integrates CGM with physiological signals such as **heart rate, respiration, 
 ---
 
 
-## Current Extension Work
+## Myriam Charfeddine Upgrade Layer
 
-This fork/working branch foregrounds Myriam Charfeddine's extensions beyond the original SSM-CGM codebase: enriched multimodal clinical data construction, participant-disjoint Experiment C, dynamic + static forecasting, private cloud-scale training, per-participant personalization, and subgroup analysis. See [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md) for the added strategy and code map.
+This fork foregrounds Myriam Charfeddine's upgrades beyond the original SSM-CGM codebase. The original repository provides the base SSM-CGM model, benchmarking, interpretability, counterfactual, and meal-detection code. The added layer extends it with:
+
+- enriched multimodal clinical preprocessing from CGM, wearable, demographics, medication, and clinical measurement sources;
+- Experiment C participant-disjoint train/validation/test construction;
+- dynamic-only, dynamic + static, and participant-disjoint Mamba/TFT training scripts;
+- cloud-scale Experiment C tuning, W&B run tracking, and memory-survival controls;
+- per-participant C1 personalization and subgroup/stratum analysis.
+
+See [`MYRIAM_UPGRADES.md`](MYRIAM_UPGRADES.md) for the original-vs-added separation and [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md) for the current strategy and code map.
 
 ## Repository Structure
 
@@ -40,10 +48,13 @@ This fork/working branch foregrounds Myriam Charfeddine's extensions beyond the 
 SSM-CGM/
 ├── Preprocessing/           # Myriam's enriched data, cohort, and Experiment C split pipeline
 ├── Benchmarking/            # Forecasting experiments, Experiment A/B/C, personalization, metrics
+├── scripts/                 # Myriam's Experiment C cloud tuning and Batch launch scripts
+├── notebooks/               # Myriam's Experiment C tuning analysis notebooks
 ├── Counterfactuals/         # Counterfactual simulations & plausibility checks
 ├── Interpretability/        # Variable and temporal attribution analyses
 ├── MealDetection/           # CNN-BiLSTM meal detection model (CGMacros)
 ├── Miscellaneous/           # Embedding visualizations & error analyses
+├── MYRIAM_UPGRADES.md       # Original base vs Myriam upgrade layer
 ├── PROJECT_PROGRESS.md      # Summary of Myriam's current CGM project extensions
 ├── SSM_CGM.py               # Core model implementation
 ├── LICENSE
