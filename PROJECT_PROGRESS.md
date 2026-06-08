@@ -1,5 +1,7 @@
 # My CGM Project Extensions
 
+For a concise public separation between the original SSM-CGM base and the added upgrade layer, see [`MYRIAM_UPGRADES.md`](MYRIAM_UPGRADES.md).
+
 This page documents the work I added on top of the original SSM-CGM repository. The goal is to move from a dynamic-sensor forecasting benchmark toward a clinically enriched, participant-disjoint, and personalization-aware CGM forecasting pipeline.
 
 ## What I Added Compared With The Original SSM-CGM Work
@@ -27,6 +29,11 @@ The original repository centered on the SSM-CGM model, benchmarking, interpretab
    - Added adaptation sweeps over participant-specific windows and fine-tuning settings.
    - Added subgroup analysis to quantify who benefits from personalization by HbA1c, BMI, medication indicators, study group, and site.
 
+5. **Cloud-scale tuning and operational safeguards**
+   - Added scripts for Experiment C Batch job submission, cloud execution, and small-sweep orchestration.
+   - Added W&B logging, run-status summaries, checkpoint metadata, memory diagnostics, shared-memory controls, and validation/test evaluation switches.
+   - Kept raw data, checkpoints, predictions, and private result artifacts out of Git.
+
 ## Added Code Map
 
 | Area | Files | Purpose |
@@ -41,6 +48,7 @@ The original repository centered on the SSM-CGM model, benchmarking, interpretab
 | Personalization | `Benchmarking/Day1/personalize_exp_C_head.py` | Per-participant head adaptation from a global Experiment C checkpoint. |
 | Subgroup analysis | `Benchmarking/Day1/subgroup_analysis.py` | Analyze personalization improvements by clinical subgroup. |
 | Adaptation sweep | `Benchmarking/Day1/sweep_adaptation.py` | Sweep adaptation windows and fine-tuning settings. |
+| Cloud tuning | `scripts/submit_exp_C_tuning_batch.sh`, `scripts/run_exp_C_tuning_cloud.sh`, `scripts/launch_exp_C_small_sweep.py`, `notebooks/exp_C_tuning_results.ipynb` | Submit, run, monitor, and summarize private Experiment C tuning jobs. |
 
 ## Current Experiment C Strategy
 

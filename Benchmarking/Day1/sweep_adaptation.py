@@ -69,7 +69,8 @@ def run_one(adapt_h: int, args) -> Path:
     smoke_suffix = "_smoke" if args.smoke else ""
     sweep_root = args.sweep_output_root or (_DATA_ROOT / "results/exp_C_personalization")
     out_dir = sweep_root / f"sweep_adapt{adapt_h}h{smoke_suffix}"
-    metrics_path = out_dir / f"personalization_metrics_{args.split}.csv"
+    # personalize_exp_C_head.py appends /{split}/ to --output-dir before saving
+    metrics_path = out_dir / args.split / f"personalization_metrics_{args.split}.csv"
 
     if metrics_path.exists() and not args.overwrite:
         print(f"\n[sweep] adapt_h={adapt_h}h — already done, skipping ({metrics_path})")
