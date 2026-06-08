@@ -43,6 +43,7 @@ from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
 
+import math
 import glob
 from einops import rearrange
 
@@ -85,22 +86,24 @@ param_24h = {
     },
     "scheduler": {
         "type": "ReduceLROnPlateau",
-        "patience": 15,
-        "factor": 0.2,
+        "patience": 2,
+        "factor": 0.5,
         "min_lr": 1e-5,
         "monitor": "val_loss",
         "mode": "min",
     },
     "training": {
-        "epochs": 30,
-        "devices": 4,           # 1 GPU (scale up to 4 if desired)
+        "epochs": 20,
+        "min_epochs": 3,
+        "early_stop_patience": 3,
+        "devices": 4,
         "gradient_clip_val": 1.0,
         "strategy": "auto",
         "val_check_interval": 0.2,
     },
     "dataloader": {
         "batch_size": 32,
-        "num_workers": 4,
+        "num_workers": 8,
         "persistent_workers": True,
         "pin_memory": True,
     },
@@ -329,7 +332,22 @@ class MambaTFT(TemporalFusionTransformer):
 # =============================
 # Data — same columns as Shakson's mamba288.py
 # =============================
-def create_tft_dataloaders(train_df, param):
+def _make_subsample_dl(dataset, max_windows, bs, pin_memory, seed=42):
+    if max_windows is not None and len(dataset) > max_windows:
+        rng = np.random.default_rng(seed)
+        idx = sorted(rng.choice(len(dataset), size=max_windows, replace=False).tolist())
+        sampler = torch.utils.data.SubsetRandomSampler(idx)
+        return dataset.to_dataloader(
+            train=False, batch_size=bs, num_workers=0,
+            persistent_workers=False, pin_memory=pin_memory, sampler=sampler,
+        )
+    return dataset.to_dataloader(
+        train=False, batch_size=bs, num_workers=0,
+        persistent_workers=False, pin_memory=pin_memory,
+    )
+
+
+def create_tft_dataloaders(train_df, param, max_val_windows=None):
     log_memory("Building TimeSeriesDataSets")
 
     horizon        = int(param["windows"]["horizon"])
@@ -380,8 +398,7 @@ def create_tft_dataloaders(train_df, param):
 
     train_dl = training.to_dataloader(train=True, batch_size=bs, num_workers=nw,
                                        persistent_workers=pw, pin_memory=pin)
-    val_dl   = validation.to_dataloader(train=False, batch_size=bs, num_workers=0,
-                                         persistent_workers=False, pin_memory=pin)
+    val_dl = _make_subsample_dl(validation, max_val_windows, bs, pin)
     return training, val_dl, train_dl, validation
 
 
@@ -393,11 +410,29 @@ def build_loss(param):
     return QuantileLoss(quantiles=cfg.get("quantiles", [0.1, 0.5, 0.9]))
 
 
-def TFT_train(train_df, param, out_dir: Path):
-    training, val_dl, train_dl, validation = create_tft_dataloaders(train_df, param)
+def TFT_train(train_df, param, out_dir: Path,
+              limit_train_batches=None, save_all_checkpoints=False, max_val_windows=None):
+    training, val_dl, train_dl, validation = create_tft_dataloaders(
+        train_df, param, max_val_windows=max_val_windows
+    )
     del train_df
     gc.collect()
     log_memory("DataLoaders ready")
+
+    _bs          = int(param["dataloader"].get("batch_size", 32))
+    _devs        = int(param["training"].get("devices", 4))
+    _global_bs   = _bs * _devs
+    _n_windows   = len(train_dl.dataset)
+    _full_batches = math.ceil(_n_windows / _global_bs)
+    _eff_batches  = min(_full_batches, limit_train_batches) if limit_train_batches else _full_batches
+    _eff_frac     = _eff_batches / _full_batches * 100 if _full_batches else 100.0
+    print(f"\n--- Training Diagnostics ---")
+    print(f"  total_train_windows       : {_n_windows:,}")
+    print(f"  global_batch_size         : {_global_bs}  ({_bs}/GPU × {_devs} GPUs)")
+    print(f"  full_batches_per_epoch    : {_full_batches:,}")
+    print(f"  effective_batches/epoch   : {_eff_batches:,}  (limit_train_batches={limit_train_batches})")
+    print(f"  effective_epoch_fraction  : {_eff_frac:.1f}%")
+    print(f"----------------------------\n")
 
     loss = build_loss(param)
     model_cfg = param["model"]
@@ -415,7 +450,7 @@ def TFT_train(train_df, param, out_dir: Path):
         loss=loss,
         log_interval=10,
         log_val_interval=1,
-        reduce_on_plateau_patience=4,
+        reduce_on_plateau_patience=2,  # TODO: factor=0.5, min_lr=1e-5 require pytorch_forecasting subclassing
         enc_depth=enc.get("mamba_depth", 4),
         enc_dropout=enc.get("dropout", 0.2),
         enc_checkpoint=False,
@@ -438,7 +473,7 @@ def TFT_train(train_df, param, out_dir: Path):
     checkpoint_cb = ModelCheckpoint(
         dirpath=str(ckpt_dir),
         filename="mamba288-{epoch:02d}-{val_loss:.2f}",
-        save_top_k=3,
+        save_top_k=-1 if save_all_checkpoints else 3,
         monitor="val_loss",
         mode="min",
         save_last=True,
@@ -452,22 +487,32 @@ def TFT_train(train_df, param, out_dir: Path):
     else:
         print("[INFO] No checkpoint found — starting fresh")
 
-    train_cfg = param["training"]
+    train_cfg  = param["training"]
+    csv_logger = CSVLogger(save_dir=str(out_dir), name="logs")
+    _trainer_extra = {}
+    if limit_train_batches is not None:
+        _trainer_extra["limit_train_batches"] = limit_train_batches
     trainer = Trainer(
         max_epochs=train_cfg["epochs"],
+        min_epochs=train_cfg.get("min_epochs", 3),
         gradient_clip_val=train_cfg["gradient_clip_val"],
         accelerator="gpu",
         devices=train_cfg["devices"],
         strategy=train_cfg.get("strategy", "auto"),
         val_check_interval=train_cfg.get("val_check_interval", 0.2),
         callbacks=[
-            EarlyStopping(monitor="val_loss", patience=15, mode="min"),
+            EarlyStopping(
+                monitor="val_loss",
+                patience=train_cfg.get("early_stop_patience", 3),
+                mode="min",
+            ),
             LearningRateMonitor(logging_interval="epoch"),
             checkpoint_cb,
         ],
         enable_progress_bar=True,
         enable_model_summary=True,
-        logger=True,
+        logger=csv_logger,
+        **_trainer_extra,
     )
 
     log_memory("Starting training")
@@ -549,10 +594,31 @@ def parse_args():
                    help="Smoke test: 200 stratified participants, 3 epochs — verifies convergence quickly")
     p.add_argument("--epochs", type=int, default=None,
                    help="Override max_epochs (default: 30, smoke: 3)")
+    p.add_argument("--min-epochs", type=int, default=None,
+                   help="Override Lightning Trainer min_epochs (default: 3)")
+    p.add_argument("--early-stop-patience", type=int, default=None,
+                   help="Override EarlyStopping patience on val_loss (default: 3)")
     p.add_argument("--n-participants", type=int, default=None,
                    help="Subsample N participants (stratified by study_group)")
     p.add_argument("--context-length", type=int, default=288,
                    help="Encoder context length in bins (288=24h, 576=48h). Default: 288")
+    p.add_argument("--batch-size", type=int, default=None,
+                   help="Override batch size per GPU (default: 32)")
+    p.add_argument("--limit-train-batches", type=int, default=None,
+                   help="Cap training batches per epoch per GPU (e.g. 20000)")
+    p.add_argument("--max-val-windows", type=int, default=None,
+                   help="Cap validation windows via random subsampling")
+    p.add_argument("--save-all-epoch-checkpoints", action="store_true",
+                   help="Save checkpoint every epoch (save_top_k=-1)")
+    # DataLoader shared-memory flags — use these when workers crash with bus error / SIGBUS.
+    # Root cause: multiple workers + pin_memory=True exhaust /dev/shm inside the container,
+    # killing one worker; NCCL watchdog errors are secondary, not the root cause.
+    p.add_argument("--num-workers", type=int, default=None,
+                   help="Override DataLoader num_workers per GPU process (default: 8)")
+    p.add_argument("--no-persistent-workers", action="store_true", dest="no_persistent_workers",
+                   help="Disable persistent DataLoader workers (reduces /dev/shm pressure)")
+    p.add_argument("--no-pin-memory", action="store_true", dest="no_pin_memory",
+                   help="Disable DataLoader pin_memory (reduces shared-memory bus load)")
     return p.parse_args()
 
 
@@ -597,6 +663,17 @@ if __name__ == "__main__":
     param["windows"]["context_length"] = args.context_length
     ctx_h = args.context_length // 12   # 5-min bins per hour
 
+    param["dataloader"] = dict(param_24h["dataloader"])
+
+    if args.batch_size is not None:
+        param["dataloader"]["batch_size"] = args.batch_size
+    if args.num_workers is not None:
+        param["dataloader"]["num_workers"] = args.num_workers
+    if args.no_persistent_workers:
+        param["dataloader"]["persistent_workers"] = False
+    if args.no_pin_memory:
+        param["dataloader"]["pin_memory"] = False
+
     if args.smoke:
         print("\n[SMOKE TEST] 200 participants · 3 epochs · val every epoch")
         args.n_participants = args.n_participants or 200
@@ -606,8 +683,31 @@ if __name__ == "__main__":
 
     if args.epochs is not None:
         param["training"]["epochs"] = args.epochs
+    if args.min_epochs is not None:
+        param["training"]["min_epochs"] = args.min_epochs
+    if args.early_stop_patience is not None:
+        param["training"]["early_stop_patience"] = args.early_stop_patience
 
     args.out.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n{'='*56}")
+    print(f"  Experiment A — SSM-CGM Dynamic-only (Mamba288)")
+    print(f"{'='*56}")
+    print(f"  context_length     : {param['windows']['context_length']} bins = {ctx_h}h")
+    print(f"  horizon            : {param['windows']['horizon']} bins = 1h")
+    print(f"  batch_size/GPU     : {param['dataloader']['batch_size']}")
+    print(f"  num_workers        : {param['dataloader']['num_workers']}")
+    print(f"  persistent_workers : {param['dataloader']['persistent_workers']}")
+    print(f"  pin_memory         : {param['dataloader']['pin_memory']}")
+    print(f"  devices            : {param['training']['devices']}")
+    print(f"  max_epochs         : {param['training']['epochs']}")
+    print(f"  min_epochs         : {param['training']['min_epochs']}")
+    print(f"  early_stop_patience: {param['training']['early_stop_patience']}")
+    print(f"  reduce_lr_patience : 2")
+    print(f"  limit_train_batches: {args.limit_train_batches}")
+    print(f"  max_val_windows    : {args.max_val_windows}")
+    print(f"  output             : {args.out}")
+    print(f"{'='*56}\n")
 
     print(f"\nLoading train feather: {args.train}")
     train_df = pd.read_feather(args.train)
@@ -626,11 +726,14 @@ if __name__ == "__main__":
             raise FileNotFoundError(f"No checkpoint found in {ckpt_dir}")
         best_ckpt = ckpts[-1]
         print(f"Loading checkpoint: {best_ckpt}")
-        _, val_dl, _, _ = create_tft_dataloaders(train_df, param)
+        _, val_dl, _, _ = create_tft_dataloaders(train_df, param, max_val_windows=args.max_val_windows)
         tft = MambaTFT.load_from_checkpoint(str(best_ckpt), weights_only=False)
         evaluate(tft, val_dl, args.out, ctx_h=ctx_h)
     else:
         tft, trainer, val_dl, train_dl, validation, training = TFT_train(
-            train_df, param, args.out
+            train_df, param, args.out,
+            limit_train_batches=args.limit_train_batches,
+            save_all_checkpoints=args.save_all_epoch_checkpoints,
+            max_val_windows=args.max_val_windows,
         )
         evaluate(tft, val_dl, args.out, ctx_h=ctx_h)
