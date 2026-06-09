@@ -231,6 +231,7 @@ report/tables/generated/*.csv
 report/tables/generated/*.json
 report/tables/generated/*.yaml
 report/tables/generated/*.yml
+report/figures/generated/*.txt
 
 # LaTeX build intermediates (report/)
 report/*.aux
