@@ -209,6 +209,7 @@ __marimo__/
 # Project-generated artifacts and private data
 .DS_Store
 **/.DS_Store
+outputs/
 lightning_logs/
 **/lightning_logs/
 checkpoints/
@@ -222,3 +223,30 @@ Data/
 *.feather
 *.csv
 *.tsv
+*.zip
+
+# Report source is tracked, but generated raw metric snapshots stay local.
+!report/results_manifest.csv
+report/tables/generated/*.csv
+report/tables/generated/*.json
+report/tables/generated/*.yaml
+report/tables/generated/*.yml
+
+# LaTeX build intermediates (report/)
+report/*.aux
+report/*.log
+report/*.out
+report/*.bbl
+report/*.blg
+report/*.toc
+report/*.lof
+report/*.lot
+report/*.fls
+report/*.fdb_latexmk
+report/*.synctex.gz
+# compiled PDF is excluded (regenerate with `cd report && make`)
+report/main.pdf
+report/aireadi_ssmcgm_report.pdf
+
+# Report pipeline cache
+outputs/_report_collected.json
