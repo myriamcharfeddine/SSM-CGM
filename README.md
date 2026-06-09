@@ -42,6 +42,20 @@ This fork foregrounds Myriam Charfeddine's upgrades beyond the original SSM-CGM 
 
 See [`MYRIAM_UPGRADES.md`](MYRIAM_UPGRADES.md) for the original-vs-added separation and [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md) for the current strategy and code map.
 
+
+## AI-READI SSMCGM-Stream Layer
+
+This fork also contains a separate **AI-READI SSMCGM-Stream** layer. It is the new stateful streaming CGM forecasting path, not the original upstream SSM-CGM experiment code and not the older window-only benchmark path.
+
+The stream layer lives in:
+- `ssmcgm/`: reusable stream model, data, training, evaluation, causal/proxy, and reporting helpers
+- `configs/aireadi_stream_full.yaml` and `configs/ablations/`: AI-READI stream configs
+- `scripts/train_stream_aireadi.py`, `scripts/evaluate_stream_aireadi.py`, `scripts/evaluate_stream_diagnostics.py`: train/evaluate/diagnose entrypoints
+- `scripts/report/`: report synchronization, table/figure generation, and validation utilities
+- `report/`: LaTeX manuscript source and generated `.tex`/figure artifacts for Overleaf/GitHub
+
+Generated training outputs stay local under `outputs/` and are not pushed: checkpoints, parquet predictions, raw metric CSV/JSON snapshots, and the Overleaf ZIP. See [`docs/SSMCGM_STREAM_BOUNDARY.md`](docs/SSMCGM_STREAM_BOUNDARY.md) for the full boundary.
+
 ## Repository Structure
 
 ```

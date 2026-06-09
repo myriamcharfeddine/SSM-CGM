@@ -1,0 +1,96 @@
+# Prepared ablation config only.
+# Current AireadiStreamModel currently raises unless target_transform=residual_current,
+# so this config requires model/trainer target-transform support before launch.
+name: AI-READI-Stream-Full
+data:
+  panel_path: /home/myriamcharfeddine/CGM/Data/enriched_multimodal/final_multimodal_dataset_20260515_184339.parquet
+  static_path: /home/myriamcharfeddine/CGM/Data/enriched_multimodal/participant_static_features.parquet
+  cohort_path: /home/myriamcharfeddine/CGM/Data/enriched_multimodal/cohort.csv
+  schema: {}
+dataset:
+  bin_minutes: 5
+  horizon_steps: 12
+  target_transform: absolute
+  streaming_unit: participant_id_plus_segment_id
+  clean_min_segment_hours: 49
+split:
+  mode: participant_heldout
+  existing_split_path: /home/myriamcharfeddine/CGM/Data/experiment_c_split_adapt6h_seed42/split_participants.csv
+  train: 0.7
+  val: 0.15
+  test: 0.15
+  seed: 42
+  stratify_col: participants_study_group
+model:
+  hidden_size: 128
+  dropout: 0.1
+  mamba_depth: 2
+  mamba_style: mes
+  d_state: 64
+  d_conv: 4
+  expand: 2
+  headdim: 32
+  ngroups: 1
+  scan_mode: mamba
+  chunk_len: 64
+  use_static_film: true
+  film_mode: scale_shift
+  fusion_mode: grouped_sum
+  scenario_decompose: true
+  horizon_emb_dim: 16
+  decoder_hidden_size: 128
+  quantiles:
+  - 0.1
+  - 0.5
+  - 0.9
+  target_transform: absolute
+training:
+  train_mode: stateful_stream
+  batch_size: 8
+  windowed_debug_batch_size: 32
+  windowed_context_steps: 288
+  chunk_length_hours: 6
+  detach_state_every_chunk: true
+  training_anchor_stride_minutes: 15
+  val_anchor_stride_minutes: 15
+  gradient_clip_val: 1.0
+  mixed_precision: true
+  max_epochs: 3
+  patience: 5
+  lr: 0.001
+  weight_decay: 0.0001
+  insulin_ranking_loss: disabled_for_aireadi
+  ablation_name: absolute_target
+  ablation_supported_by_current_code: false
+evaluation:
+  anchor_stride_minutes: 15
+  modes:
+  - forecast_only
+  - factual_future
+  - meal_proxy
+  - activity_proxy
+  - sleep_rest_proxy
+  personalization_warmup_hours:
+  - 0
+  - 6
+  - 12
+  - 24
+  - 48
+  subgroup_columns:
+  - participants_study_group
+  - hba1c_percent_baseline
+  - bmi_baseline
+  - participants_clinical_site
+  - med_insulin
+  - med_any_diabetes_drug
+output:
+  base_dir: /home/myriamcharfeddine/CGM/SSM-CGM/outputs/aireadi_stream_full
+smoke:
+  participants: 12
+  train_participants: 6
+  val_participants: 3
+  eval_participants: 3
+  max_train_streams: 6
+  max_val_streams: 3
+  max_anchors_per_stream: 4
+  epochs: 1
