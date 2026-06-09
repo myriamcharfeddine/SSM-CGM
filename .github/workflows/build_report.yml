@@ -1,0 +1,37 @@
+name: Build LaTeX Report
+
+on:
+  push:
+    paths:
+      - 'report/**'
+      - '.github/workflows/build_report.yml'
+  pull_request:
+    paths:
+      - 'report/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install TeX Live
+        uses: xu-cheng/latex-action@v3
+        with:
+          root_file: main.tex
+          working_directory: report
+          latexmk_use_lualatex: false
+          latexmk_use_xelatex: false
+          args: >
+            -pdf
+            -interaction=nonstopmode
+            -halt-on-error
+            -jobname=aireadi_ssmcgm_report
+
+      - name: Upload PDF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aireadi-ssmcgm-report-pdf
+          path: report/aireadi_ssmcgm_report.pdf
+          retention-days: 30

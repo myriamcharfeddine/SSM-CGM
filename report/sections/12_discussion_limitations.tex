@@ -1,0 +1,8 @@
+\section{Discussion and Limitations}
+\label{sec:discuss}
+
+The AI-READI port produces a viable participant-held-out streaming forecaster and improves over persistence on matched anchors. The result is scientifically meaningful because the split is participant-held-out and the recurrent state never crosses segment boundaries. The improvement over persistence is real but not huge, which is an important limitation of residual-current CGM forecasting: current glucose already carries most of the short-horizon signal.
+
+The strongest current claims are forecasting performance, persistence improvement, participant-level subgroup behavior, and q0.1/q0.9 safety-alarm trade-offs. The weakest current claims are personalization and proxy scenarios. Matched-anchor personalization is flat in the current artifacts, and offset correction worsens MAE. Proxy scenario deltas are near zero, so the scenario branch is not yet scientifically interpretable.
+
+Limitations are specific to AI-READI. The dataset lacks timed insulin dose, insulin-on-board, and carbohydrate quantity logs; \texttt{med\_insulin} is static metadata only. The predicted meal flag is noisy and may be retrospective. The residual-current target can hide weak dynamic learning if persistence is not reported. Participant-level averages are necessary because anchor-weighted metrics overrepresent participants with longer clean segments. Finally, site and phenotype subgroup effects require follow-up audits before being interpreted as biological effects rather than cohort composition or domain shift.

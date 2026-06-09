@@ -1,0 +1,7 @@
+\section{Interpretability}
+\label{sec:interp}
+
+The most defensible interpretability results for this AI-READI run are the subgroup, persistence, and scenario-delta diagnostics. The residual-current target means a model can look strong by staying close to persistence, so the matched persistence baseline is essential for interpretation. The model does beat persistence, but the margin is modest, which is expected for 60-minute CGM forecasting.
+
+The proxy scenario branch is not currently interpretable as a physiological what-if mechanism: prediction deltas are near zero, and \texttt{predmeal\_flag} is unavailable in the audited future horizon for the test anchors. No insulin-on-board equivalent is available in AI-READI, and no insulin causal interpretation should be included.
+

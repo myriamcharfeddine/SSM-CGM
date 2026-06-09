@@ -1,0 +1,13 @@
+\section{Proxy Scenario Evaluation}
+\label{sec:proxy}
+
+\subsection{AI-READI scenario taxonomy}
+AI-READI provides wearable proxies and static metadata, not the timed insulin dose, carbohydrate quantity, or insulin-on-board streams available in T1DEXI. The dose-ordering causal ranking loss is disabled for AI-READI. \texttt{med\_insulin} records therapy status only; it is not an action covariate and is not edited in counterfactual simulations.
+
+\GeneratedScenarioInterpretation
+
+\GeneratedScenarioTables
+
+\GeneratedScenarioFigures
+
+The meal, activity, and sleep/rest outputs should therefore be described as proxy pathway diagnostics. They should not be used as treatment recommendations, carbohydrate counterfactuals, or insulin counterfactuals. A future scientifically interpretable scenario model would need prospective action logs or stronger supervision of the scenario branch.
