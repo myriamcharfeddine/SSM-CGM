@@ -1,0 +1,13 @@
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrr}
+\toprule
+Setup & Meal MAE & Peak err. & TTP err. & Hyper AUPRC & Recall@.80 & MAE60 \\
+\midrule
+q50 & 13.856 & 10.893 & 19.4 & 0.876 & 0.776 & 14.357 \\
+A$'$: slope+level+clock & 13.745 & 10.549 & 20.1 & 0.876 & 0.776 & 14.351 \\
+C$'$: causal teacher (ceiling) & 13.724 & 10.542 & 20.0 & 0.876 & 0.778 & 14.333 \\
+C: bidir teacher (leakage) & 11.286 & 8.150 & 17.5 & 0.926 & 0.862 & 11.789 \\
+B: predmeal flag (leakage) & 13.226 & 9.876 & 19.7 & 0.888 & 0.792 & 13.737 \\
+\bottomrule
+\end{tabular}
+}

@@ -1,0 +1,38 @@
+# Track A: strictly online causal meal-state representation
+online_decoder:
+  event_threshold: 0.50
+  event_reset_threshold: 0.35
+  support_lookback_steps: 12
+  confidence_temperature: 1.0
+  min_recovery_steps: 2
+
+response_size_model:
+  max_iter: 160
+  learning_rate: 0.05
+  max_depth: 4
+  max_leaf_nodes: 31
+  l2_regularization: 5.0
+  validation_fraction: 0.15
+  random_state: 42
+  max_train_rows: 800000
+  max_none_rows: 250000
+
+eval_mask:
+  teacher_quantile: 0.75
+  response_quantile: 0.75
+  min_time_to_peak_min: 10
+  max_time_to_peak_min: 120
+  activity_steps_30_max: 1500.0
+  event_window_steps: 12
+  min_event_gap_steps: 12
+  insulin_confidence_scale: 0.6
+
+ablation:
+  max_iter: 180
+  learning_rate: 0.04
+  max_depth: 4
+  max_leaf_nodes: 31
+  l2_regularization: 10.0
+  random_state: 42
+  n_bootstrap: 500
+  time_shift_steps: 24

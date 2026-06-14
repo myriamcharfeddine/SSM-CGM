@@ -1,0 +1,24 @@
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llrrr}
+\toprule
+Setup & Control & Meal MAE & Peak err. & Hyper AUPRC \\
+\midrule
+C$'$: causal teacher (ceiling) & real & 13.724 & 10.542 & 0.876 \\
+C$'$: causal teacher (ceiling) & shuffle & 13.830 & 10.492 & 0.876 \\
+C$'$: causal teacher (ceiling) & time\_shift & 13.859 & 10.716 & 0.874 \\
+C$'$: causal teacher (ceiling) & block\_shuffle & 13.824 & 10.521 & 0.875 \\
+D: student prob. & real & 13.711 & 10.541 & 0.877 \\
+D: student prob. & shuffle & 13.792 & 10.601 & 0.876 \\
+D: student prob. & time\_shift & 13.741 & 10.541 & 0.876 \\
+D: student prob. & block\_shuffle & 13.813 & 10.500 & 0.876 \\
+H: online full state & real & 13.710 & 10.523 & 0.877 \\
+H: online full state & shuffle & 13.819 & 10.554 & 0.876 \\
+H: online full state & time\_shift & 17.159 & 16.906 & 0.757 \\
+H: online full state & block\_shuffle & 13.834 & 10.468 & 0.876 \\
+B: predmeal flag (leakage) & real & 13.226 & 9.876 & 0.888 \\
+B: predmeal flag (leakage) & shuffle & 14.116 & 14.174 & 0.866 \\
+B: predmeal flag (leakage) & time\_shift & 13.714 & 10.689 & 0.868 \\
+B: predmeal flag (leakage) & block\_shuffle & 14.206 & 12.196 & 0.871 \\
+\bottomrule
+\end{tabular}
+}

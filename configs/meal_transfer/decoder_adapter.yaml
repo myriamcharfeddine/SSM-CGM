@@ -1,0 +1,27 @@
+# Block 5 - optional decoder-adapter ablation (feature-as-input).
+#
+# This is an ABLATION ONLY. It does not change the headline meal representation
+# or the selection decision unless the adapter passes the same coded gate as the
+# additive residual setups (ssmcgm.meal_transfer.selection). The motivation is
+# critique #5: a meal effect is a shaped curve (rise then fall), which an
+# additive, per-horizon-independent residual cannot represent. The adapter fits
+# the meal feature as an input covariate to a joint multi-horizon corrector so
+# the correction is a shaped trajectory.
+
+adapter:
+  feature_as_input: true        # if false, falls back to the additive residual form
+  setup: H_online_full_state    # which meal representation to feed as covariate
+  base: slc                     # A' slope/level/clock base
+  model: gradient_boosting      # gradient_boosting before mlp (per instructions)
+  # joint multi-horizon target: one shaped 12-step correction per anchor
+  joint_horizon: true
+  max_iter: 200
+  learning_rate: 0.04
+  max_depth: 4
+  l2_regularization: 10.0
+  random_state: 42
+
+run:
+  n_boot: 200
+  # ablation only: never promotes to headline automatically
+  allow_headline_change: false
