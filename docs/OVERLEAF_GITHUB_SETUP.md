@@ -1,165 +1,148 @@
-# Overleaf ↔ GitHub Sync Setup
+# Overleaf Bidirectional Sync (Premium Git)
 
-This document explains how to connect the `report/` folder to an Overleaf project so you can
-edit LaTeX in Overleaf and keep changes in sync with GitHub.
+You have Overleaf Premium and the Overleaf project already exists at:
+`https://overleaf.com/project/6a393f237e2c170adf310484`
 
-## Prerequisites
-
-- A GitHub account with push access to this repo.
-- An Overleaf account with at least the **free** tier
-  (GitHub sync requires Overleaf **premium**; see the workaround below for free accounts).
+The sync uses `git subtree`, which maps the `report/` subfolder in this repo
+to the root of the Overleaf project. No separate clone is needed.
 
 ---
 
-## Option A — Overleaf Premium: Direct GitHub Sync
+## One-time setup
 
-1. **Create a new Overleaf project** (blank or from a ZIP).
+### 1. Generate an Overleaf auth token
 
-2. In Overleaf, click **Menu → GitHub → Link to a GitHub repository**.
+In Overleaf: **Account (top-right) → Account Settings → Git Authentication Tokens → Generate**.
+Copy the token. You will paste it as the password on the first push/pull.
 
-3. Select this repository (`SSM-CGM`) and the branch you want to sync (e.g., `main`).
+### 2. Add the Overleaf remote
 
-4. Set the **main document** to `report/main.tex`.
-
-5. **Pull from GitHub** to initialize: Menu → GitHub → Pull changes from GitHub.
-
-6. Compile in Overleaf: click the green **Recompile** button.
-
-7. **Push edits back to GitHub**: Menu → GitHub → Push changes to GitHub.
-   Write a commit message and confirm.
-
-> **Rule**: never commit raw AI-READI data files, participant-level outputs, or credentials
-> through Overleaf.  Only `.tex`, `.bib`, `.pdf`/`.png` figures, and `Makefile` belong in
-> `report/`.  Run `python scripts/report/validate_report_inputs.py` before every push.
-
----
-
-## Option B — Free Overleaf: Initial ZIP Upload + Incremental File Updates
-
-### First time only — create the Overleaf project from a ZIP
-
-1. **Create a ZIP** of the `report/` folder:
-   ```bash
-   cd /home/myriamcharfeddine/CGM/SSM-CGM
-   zip -r report_snapshot.zip report/ --exclude '*.pdf' --exclude '*.aux' \
-     --exclude '*.log' --exclude '*.out' --exclude '*.bbl' --exclude '*.blg'
-   ```
-
-2. In Overleaf: **New Project → Upload Project → select `report_snapshot.zip`**.
-
-3. Set the main file to `report/main.tex` in Overleaf, then click **Recompile**.
-
-> **Do this only once.** Uploading a ZIP always creates a *new* project.
-> For all subsequent updates, use the incremental file upload described below.
-
----
-
-### Subsequent updates — upload only changed files (no new project)
-
-After running the automation pipeline, only a handful of files change.
-Upload them **into the existing project** — no new project is created:
-
-1. **List what to re-upload** (auto-generated files always change after a new run):
-   ```bash
-   cd /home/myriamcharfeddine/CGM/SSM-CGM
-   find report/sections/generated_results_summary.tex \
-        report/tables/generated/ \
-        report/figures/generated/ \
-        -type f 2>/dev/null | sort
-   ```
-
-2. **In Overleaf**, open your existing project.
-
-3. In the **file tree** on the left, click the **upload icon (↑ arrow)**.
-
-4. **Drag in only the files that changed** — typically:
-   - `sections/generated_results_summary.tex`
-   - `tables/generated/*.tex`
-   - `figures/generated/*.png`
-   - Any section `.tex` file you edited manually
-
-5. When Overleaf asks **"Overwrite existing file?"** — click **Yes**.
-   The file is replaced in place; the project is not recreated.
-
-6. Click **Recompile**.
-
-### Pulling Overleaf edits back to the repo
-
-If you edit `.tex` files directly in Overleaf:
-
-1. In Overleaf: **Menu → Download → Source (.zip)**.
-2. Unzip and copy the changed `.tex` / `.bib` files back into `report/`.
-3. Commit normally.
-
----
-
-## Directory layout for Overleaf
-
-When Overleaf opens the project, it sees:
-```
-main.tex            ← set this as the main file
-macros.tex
-references.bib
-sections/
-  00_abstract.tex
-  01_introduction.tex
-  ...
-  generated_results_summary.tex   ← auto-generated; may be absent initially
-figures/
-  generated/        ← place figure PDFs/PNGs here before compiling
-tables/
-  generated/        ← place generated LaTeX table fragments here
+```bash
+cd /home/myriamcharfeddine/CGM/SSM-CGM
+./scripts/overleaf_sync.sh setup
 ```
 
-Missing `sections/generated_results_summary.tex` is handled gracefully — the report compiles
-without it and uses `\PENDING` placeholders.
+This runs:
+```bash
+git remote add overleaf https://git@git.overleaf.com/6a393f237e2c170adf310484
+```
+
+### 3. Cache your token so you are not prompted every time
+
+```bash
+git config --global credential.helper store
+```
+
+Then do your first push (step below). Git will ask for the password once and
+store the token permanently in `~/.git-credentials`.
 
 ---
 
-## Updating tables and figures after new experiments
+## Day-to-day workflow
 
-> **All commands must be run from the repo root** (`SSM-CGM/`), not from inside `report/`.
+### Edit in VS Code → push to Overleaf
 
-1. Run the automation pipeline:
-   ```bash
-   # ── make sure you are in the repo root ──────────────────────────────────
-   cd /home/myriamcharfeddine/CGM/SSM-CGM
+```bash
+# 1. Make changes in report/ as normal
+# 2. Commit them to the local repo
+git add report/
+git commit -m "your message"
 
-   # 1. Collect latest metrics from outputs/
-   python scripts/report/collect_latest_results.py --outputs-root outputs
+# 3. Push to Overleaf
+./scripts/overleaf_sync.sh push
+```
 
-   # 2. Generate LaTeX tables into report/tables/generated/
-   python scripts/report/make_report_tables.py
+Then open Overleaf and click **Recompile** to see the result.
 
-   # 3. Generate figures into report/figures/generated/  (needs matplotlib)
-   python scripts/report/make_report_figures.py
+### Edit in Overleaf → pull to VS Code
 
-   # 4. Update the results snapshot (writes real values into report/sections/)
-   python scripts/report/update_report_snapshot.py --outputs-root outputs
+```bash
+./scripts/overleaf_sync.sh pull
+```
 
-   # 5. Validate — no raw data or credentials in report/
-   python scripts/report/validate_report_inputs.py
-
-   # 6. Compile the PDF  (needs pdflatex — install with: sudo apt install texlive-full)
-   cd report && make
-   ```
-
-2. Commit the updated `.tex` files and figures to GitHub.
-   - **Option A (Premium):** Menu → GitHub → Pull changes from GitHub.
-   - **Option B (Free):** upload only the changed files into your existing project
-     (see "Subsequent updates" above — do NOT upload a new ZIP).
+This fetches the Overleaf project state and merges it into `report/`.
+Changed `.tex` / `.bib` files appear immediately in VS Code.
 
 ---
 
-## What NOT to commit
+## How it works internally
 
-| File type | Action |
-|-----------|--------|
-| `.parquet`, `.feather`, `.pkl` | Never commit — keep in `outputs/` only |
-| Participant-level tables (e.g., per-PID CSVs) | Never commit |
-| `.pth`, `.ckpt`, model weights | Never commit |
-| `.env`, credentials, API keys | Never commit |
-| `report/*.pdf` (compiled output) | Excluded by `.gitignore` |
-| `report/*.aux`, `*.log`, `*.bbl` | Excluded by `.gitignore` |
+```
+Local repo                           Overleaf project (git root)
+──────────────────                   ──────────────────────────
+report/                 push/pull    main.tex
+  main.tex          ←──────────→    macros.tex
+  sections/                         sections/
+  figures/                          figures/
+  tables/                           tables/
+  ...                               references.bib
+```
 
-The `validate_report_inputs.py` script checks for these before allowing a commit.
+`git subtree push --prefix=report overleaf master` rewrites commits that touch
+`report/` and pushes them as if `report/` were the repo root. Overleaf sees
+`main.tex` at its root, as expected.
+
+`git subtree pull --prefix=report overleaf master --squash` fetches Overleaf's
+current state and merges it back into `report/` with a single squash commit.
+
+---
+
+## Conflict resolution
+
+If you edited locally AND in Overleaf at the same time:
+
+```bash
+# 1. Pull Overleaf first (may create a merge commit)
+./scripts/overleaf_sync.sh pull
+
+# 2. Resolve any merge conflicts in the affected .tex files, then:
+git add report/
+git commit -m "merge: resolve conflict with Overleaf edits"
+
+# 3. Push the merged result back to Overleaf
+./scripts/overleaf_sync.sh push
+```
+
+---
+
+## Compile locally before pushing
+
+```bash
+cd /home/myriamcharfeddine/CGM/SSM-CGM/report
+pdflatex -interaction=nonstopmode main.tex
+pdflatex -interaction=nonstopmode main.tex   # second pass for cross-refs
+```
+
+Or with latexmk (preferred):
+```bash
+latexmk -pdf -interaction=nonstopmode main.tex
+```
+
+---
+
+## What NOT to push to Overleaf
+
+Never let these reach Overleaf via push (they are already gitignored):
+
+| Type | Reason |
+|---|---|
+| `*.parquet`, `*.feather`, `*.pkl` | Participant-level data |
+| `*.pth`, `*.ckpt` | Model weights |
+| `outputs/` | Too large, participant data |
+| `report/*.pdf` | Compiled output, not source |
+| `report/*.aux`, `*.log`, `*.bbl` | Build artifacts |
+
+The `.gitignore` already excludes these, so `git add report/` will not
+accidentally stage them.
+
+---
+
+## Quick reference
+
+| Goal | Command |
+|---|---|
+| First-time setup | `./scripts/overleaf_sync.sh setup` |
+| Local → Overleaf | `./scripts/overleaf_sync.sh push` |
+| Overleaf → Local | `./scripts/overleaf_sync.sh pull` |
+| Check status | `./scripts/overleaf_sync.sh status` |
+| Compile locally | `cd report && pdflatex -interaction=nonstopmode main.tex` |
