@@ -1,10 +1,10 @@
-\begin{tabular}{lrrr}
+\begin{tabular}{lcc}
 \toprule
-Mode & MAE & Bias & Cov. \\
+Mode & MAE (mg/dL) $\downarrow$ & Bias (mg/dL) \\
 \midrule
-Raw population & 10.07 & -1.162 & 79.2\% \\
-Offset-corrected & 10.18 & -0.000 & 77.6\% \\
-Personalized & 10.55 & -1.274 & 74.9\% \\
-Personalized + offset & 10.59 & -0.112 & 74.1\% \\
+Raw (no personalization) & 10.02 & -1.446 \\
+Offset-corrected & 10.16 & -0.000 \\
+Personalized & 10.52 & -1.142 \\
+Personalized + offset-corrected & 10.61 & 0.305 \\
 \bottomrule
 \end{tabular}

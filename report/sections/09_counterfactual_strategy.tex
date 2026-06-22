@@ -358,6 +358,65 @@ For each behavior, compare model-implied effects with observed matched effects u
 \paragraph{Phase 4: optional CRN-style balancing.}
 If natural-experiment validation suggests substantial time-dependent confounding, add adversarial behavior balancing. This should be treated as an ablation because too much balancing may reduce forecast accuracy.
 
+\subsection{Phase 0 Results: Wearable Counterfactual Readiness Audit}
+\label{subsec:cf_phase0_results}
+
+We ran the five-block readiness evaluation for the \texttt{wearable\_plus\_shape} detector on the non-insulin cohort (9,667 unique meal onsets, 1,591 participants). The purpose is not to claim causal validity, but to document precisely where the current system stands relative to the four-phase roadmap.
+
+\paragraph{Block A: channel gate.}
+The factual-future gain is $G_{ff} = 1.8 \times 10^{-5}$ overall, and the \texttt{meal\_proxy\_event} event-window evaluation has zero anchors (\texttt{predmeal\_flag} future mask coverage is zero). The scenario channel is therefore \emph{dead}: the decoder was trained without a factual-future loss term on meal windows, so any inference-time wearable scenario edit produces near-zero prediction deltas regardless of detector quality. Scenario-aware retraining (Phase 1) is required before the channel can be used.
+
+\paragraph{Block B: matched natural experiment.}
+Despite the dead channel, the matched natural experiment recovers a clear physiological signal. We matched 7,825 treated episodes (\texttt{wearable\_plus\_shape} detected, non-insulin) against 7,538 controls from the same participant in the same two-hour clock bin, with pre-onset glucose within 25~mg/dL and no nearby meal. The observed effect $\Delta_{obs}(h)$ is shown in Table~\ref{tab:cf-natural-experiment}.
+
+\begin{table}[t]
+    \centering
+    \caption{Matched natural-experiment effect $\Delta_{obs}(h)$ for the \texttt{wearable\_plus\_shape} detector on the non-insulin cohort. Bootstrap 95\% CI from participant resampling ($n_\text{boot} = 300$). $\Delta_\theta$ is not available because the scenario channel is dead.}
+    \label{tab:cf-natural-experiment}
+    \begin{tabular}{lrrr}
+        \toprule
+        Horizon $h$ & $\Delta_{obs}$ (mg/dL) & 95\% CI & $n$ pairs \\
+        \midrule
+        60 min  & $+22.2$ & $[21.6,\; 22.8]$ & 7{,}480 \\
+        120 min & $+24.2$ & $[23.5,\; 25.0]$ & 7{,}432 \\
+        240 min & $+3.6$  & $[2.8,\; 4.5]$   & 7{,}355 \\
+        360 min & $+0.3$  & $[-0.5,\; 1.0]$  & 7{,}302 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+The effect profile follows classic postprandial glucose kinetics: rapid rise peaking at 120 minutes, returning to baseline by 360 minutes. At 360 minutes the confidence interval crosses zero, consistent with full resolution. The detector is capturing real meal events, not noise.
+
+\paragraph{Block C: trajectory support.}
+Of 7,825 treated anchors, 7,814 (99.9\%) are classified as supported; 11 are unsupported due to missing CGM context. The positivity condition is essentially satisfied: the detector fires in states well-represented in training data, so future counterfactual comparisons will not extrapolate into uncharted CGM territory.
+
+\paragraph{Block D: sensitivity to unmeasured confounding.}
+Table~\ref{tab:cf-sensitivity} reports the additive-bias sign-flip threshold $\delta_{flip}(h) = |\Delta_{obs}(h)|$ and the VanderWeele-Ding E-value for the binary hyperglycemia endpoint.
+
+\begin{table}[t]
+    \centering
+    \caption{Sensitivity analysis for the \texttt{wearable\_plus\_shape} natural experiment. Sign-flip threshold is the smallest additive bias that reverses the sign of $\Delta_{obs}$. E-values use the VanderWeele-Ding formula \citep{vanderweele2017evalue} for the binary hyperglycemia risk ratio; they are reported only for the binary endpoint, not for the continuous glucose effect.}
+    \label{tab:cf-sensitivity}
+    \begin{tabular}{lrrrr}
+        \toprule
+        Horizon & $\Delta_{obs}$ & Sign-flip $\delta_{flip}$ & E-value (hyper) & RR (hyper) \\
+        \midrule
+        60 min  & $+22.2$ mg/dL & 22.2 mg/dL & 3.80 & 2.19 \\
+        120 min & $+24.2$ mg/dL & 24.2 mg/dL & 3.33 & 1.96 \\
+        240 min & $+3.6$ mg/dL  & 3.6 mg/dL  & 1.84 & 1.26 \\
+        360 min & $+0.3$ mg/dL  & 0.3 mg/dL  & --- & --- \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+At 60 and 120 minutes the effect is robust: an unmeasured confounder would need to shift glucose by more than 22~mg/dL (or be associated with both wearable state and hyperglycemia risk by a factor of 3.3--3.8) to explain away the finding. At 240 minutes the sign-flip threshold drops to 3.6~mg/dL, making the effect fragile to modest unmeasured confounding. At 360 minutes $\Delta_{obs}$ is $+0.3$~mg/dL with a CI crossing zero; no E-value is reported because the continuous effect is indistinguishable from zero.
+
+\paragraph{Block E: detection quality linkage.}
+The \texttt{wearable\_plus\_shape} detector provides the most and best-timed treated episodes (0-minute median latency, 46.8\% pre-rise) compared to all other setups and CGM-only baselines (35--40~minute post-hoc detection). The higher false-positive rate (11.5 FP/day) dilutes the natural-experiment effect toward zero, making the $+22$~mg/dL finding conservative rather than inflated.
+
+\paragraph{Phase 0 conclusion.}
+The wearable detector captures real pre-meal glucose events with near-perfect trajectory support and robust sensitivity at the 1--2 hour horizons. It is ready to serve as the treated indicator in a natural experiment and as the input to a scenario-aware decoder once the channel is live. The single limiting factor is the dead scenario channel. Phase 1 (scenario-aware retraining) is the required next step; improving the detector further is not.
+
 \subsection{Expected outputs}
 \label{subsec:cf_expected_outputs}
 

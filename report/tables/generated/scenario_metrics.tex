@@ -1,11 +1,11 @@
-\begin{tabular}{lrrrr}
+\begin{tabular}{lcccc}
 \toprule
-Mode & MAE & RMSE & Bias & Cov. \\
+Mode & MAE (mg/dL) $\downarrow$ & RMSE & Bias & Cov.~80\% \\
 \midrule
-activity\_proxy & 10.072 & 16.02 & -1.159 & 79.2\% \\
-factual-future & 10.072 & 16.02 & -1.161 & 79.2\% \\
-forecast-only & 10.072 & 16.02 & -1.163 & 79.2\% \\
-meal\_proxy & 10.072 & 16.02 & -1.164 & 79.3\% \\
-sleep\_rest\_proxy & 10.072 & 16.02 & -1.162 & 79.2\% \\
+activity\_proxy & 10.02 & 15.95 & -1.443 & 0.793 \\
+factual-future (oracle) & 10.02 & 15.95 & -1.445 & 0.793 \\
+forecast-only (deployable) & 10.02 & 15.95 & -1.448 & 0.793 \\
+meal\_proxy & 10.02 & 15.95 & -1.449 & 0.793 \\
+sleep\_rest\_proxy & 10.02 & 15.95 & -1.446 & 0.793 \\
 \bottomrule
 \end{tabular}
