@@ -1,0 +1,14 @@
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llrrr}
+\toprule
+Setup & Feature & Partial corr. & $\Delta$ Meal MAE & $\Delta$ Peak \\
+\midrule
+B: predmeal flag (leakage) & predmeal\_flag & 0.278 & 0.498 & 0.673 \\
+C$'$: causal teacher (ceiling) & cgmacros\_teacher\_probability\_causal & 0.027 & 0.019 & 0.001 \\
+C: bidir teacher (leakage) & cgmacros\_teacher\_probability & 0.519 & 2.302 & 2.385 \\
+D: student prob. & student\_meal\_probability & 0.147 & 0.025 & 0.008 \\
+G: online state & student\_meal\_probability & 0.147 & 0.025 & 0.008 \\
+H: online full state & student\_meal\_probability & 0.147 & 0.025 & 0.008 \\
+\bottomrule
+\end{tabular}
+}

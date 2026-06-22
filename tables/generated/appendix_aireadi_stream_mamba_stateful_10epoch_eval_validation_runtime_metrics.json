@@ -1,0 +1,17 @@
+{
+  "latency_per_update": {
+    "n": 64,
+    "mean_ms": 6.397625968752152,
+    "median_ms": 3.682201500055271,
+    "p95_ms": 3.7505296000404087
+  },
+  "latency_per_1h_forecast": {
+    "n": 392,
+    "mean_ms": 0.003450314878279604,
+    "median_ms": 0.0032007575177755397,
+    "p95_ms": 0.005606916745798968
+  },
+  "device": "cuda",
+  "peak_gpu_memory_mb": 313.752064,
+  "cpu_memory_rss_mb": 8816.979968
+}

@@ -1,0 +1,75 @@
+\section{Data and Preprocessing}
+\label{sec:data}
+
+\subsection{AI-READI multimodal panel}
+
+The AI-READI dataset provides a 5-minute multimodal panel assembled from CGM (Dexcom),
+wrist-worn wearables (HR, steps, sleep stages, skin-conductance stress), static clinical
+features (HbA1c, BMI, medication flags, demographics, clinical site), and a predicted meal
+flag derived from a trained meal-detection model.
+The panel is stored in a single enriched Parquet file
+(\texttt{final\_multimodal\_dataset\_*}), with a companion
+\texttt{participant\_static\_features.parquet} providing per-participant covariates.
+
+\subsection{Cohort selection}
+
+A four-stage cohort selection procedure selects participants with sufficient CGM continuity
+for streaming training:
+\begin{enumerate}
+  \item \textbf{CGM coverage}: participants with $\ge 49$~h of continuous CGM segments
+        (minimum \texttt{clean\_min\_segment\_hours}).
+  \item \textbf{Stratified split}: 70/15/15 participant-level holdout stratified on
+        \texttt{participants\_study\_group} (healthy, pre-diabetes lifestyle-controlled,
+        oral/injectable medication, insulin-dependent), seed 42.
+  \item \textbf{Segment boundary enforcement}: no window or streaming state crosses a
+        (\texttt{participant\_id}, \texttt{segment\_id}) boundary.
+        The streaming unit is \texttt{participant\_id\_plus\_segment\_id}.
+  \item \textbf{Scaler fit on train only}: all normalization and per-horizon robust scales are
+        fit on train participants and applied to validation/test without leakage.
+\end{enumerate}
+
+Table~\ref{tab:cohort} summarizes the cohort characteristics.
+Full participant counts per split are \TODO{insert from split CSV after full-cohort run}.
+
+\begin{table}[h]
+\centering
+\caption{AI-READI cohort characteristics used in this study.  Values are as
+  reported in the published dataset description.}
+\label{tab:cohort}
+\IfFileExists{tables/generated/cohort_characteristics.tex}{%
+  \input{tables/generated/cohort_characteristics}%
+}{%
+  \begin{tabular}{lc}
+  \toprule
+  Characteristic & Value \\
+  \midrule
+  Study groups & healthy, pre-diabetes, oral/injectable med, insulin-dependent \\
+  CGM device & Dexcom \\
+  Sampling interval & 5 min \\
+  Wearables & HR, steps, sleep, stress \\
+  Static features & HbA1c, BMI, medications, demographics, site \\
+  Meal proxy & predicted meal flag (meal-detection model) \\
+  Insulin covariate & \texttt{med\_insulin} static flag only (no timed dose/IOB) \\
+  \bottomrule
+  \end{tabular}%
+}
+\end{table}
+
+\subsection{Predicted meal flag}
+
+The \texttt{predmeal\_flag} is produced by an upstream meal-detection model applied to the
+CGM slope and contextual covariates.
+It is a \emph{noisy proxy}: it may fire retrospectively (flagging a glucose rise that already
+occurred), miss low-carbohydrate meals, or fire spuriously during hyperglycemic episodes.
+It is used in this work only as a \texttt{meal\_proxy} scenario covariate
+(\S\ref{sec:proxy}), not as a ground-truth meal time or carbohydrate quantity.
+Any scenario evaluated with \texttt{predmeal\_flag = 1} should be interpreted as a
+retrospective simulation, not a prospective intervention.
+
+\subsection{Gap handling and segment resets}
+
+CGM gaps longer than 30~minutes trigger a new segment.  The streaming state is reset to the
+static-initialized $h_0$ at each segment boundary.  Windows and training chunks do not cross
+segment boundaries.  The residual-current target transform anchors every forecast to the
+last observed glucose, ensuring that a fresh segment cold-starts at full accuracy without
+requiring warm-up steps.

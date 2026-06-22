@@ -1,0 +1,37 @@
+{
+  "comparison_scope": "forecast_only rows, exact same participant/segment/anchor/horizon rows as model",
+  "n_rows": 1861356,
+  "n_anchors": 155113,
+  "terminal_horizon_minutes": 60,
+  "model": {
+    "n": 1861356,
+    "mae": 10.071748047694932,
+    "rmse": 16.021339656870992,
+    "bias": -1.1634634712488139,
+    "tir_true": 0.8858697637636218,
+    "tir_predicted": 0.9018038462282336,
+    "tir_gap": 0.01593408246461181,
+    "coverage": 0.7924201496113586,
+    "coverage80": 0.7924201496113586,
+    "p90_abs_error": 24.422042846679688,
+    "p95_abs_error": 34.16447448730469,
+    "p99_abs_error": 59.90721244812002
+  },
+  "persistence": {
+    "n": 1861356,
+    "mae": 11.714742708528037,
+    "rmse": 18.684898863078633,
+    "bias": 0.016474177680750147,
+    "tir_true": 0.8858697637636218,
+    "tir_predicted": 0.8856188714034284,
+    "tir_gap": -0.0002508923601933777,
+    "coverage": NaN,
+    "coverage80": NaN,
+    "p90_abs_error": 29.0,
+    "p95_abs_error": 41.0,
+    "p99_abs_error": 69.0
+  },
+  "model_terminal_mae": 14.524414956800616,
+  "persistence_terminal_mae": 17.022911837653204,
+  "delta_mae_model_minus_persistence": -1.6429946608331054
+}

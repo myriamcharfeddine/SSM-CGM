@@ -1,0 +1,16 @@
+\section{Proxy Scenario Evaluation}
+\label{sec:proxy}
+
+\subsection{AI-READI possible scenario }
+AI-READI provides rich CGM, wearable, and static clinical data, but it does not contain the action logs needed for fully causal glucose counterfactuals. In particular, there are no timed insulin doses, insulin-on-board values, logged carbohydrate amounts, or prospectively recorded meal times. This is an important limitation because these variables are the actual interventions that would be needed to answer questions such as “what if this participant ate now?” or “what if this participant took insulin?”
+The meal, activity, and sleep/rest outputs should therefore be described as representative signals rather than true treatment actions. A future scientifically interpretable scenario model would need prospective action logs or stronger supervision of the scenario branch.
+
+The scenario mode comparison confirms this limitation. Forecast-only, factual-future, meal-proxy, activity-proxy, and sleep/rest-proxy evaluation all produce almost identical forecasting metrics. The largest mean absolute prediction change relative to forecast-only mode is only 0.0071 mg/dL, which is far below any clinically meaningful glucose difference. This means that, in the current model checkpoint, the scenario branch is either inactive or only very weakly used.
+
+The prediction-delta audit gives the same conclusion more directly. Even when future proxy information is revealed, the model output barely changes. This is not evidence that meals, activity, or sleep have no effect on glucose. Instead, it shows that the trained decoder has not learned to use these proxy scenario inputs in a meaningful way. The mask and value audit explains part of the issue. The future predmealflag has zero nonzero mask coverage and zero available anchors in this evaluation, while wearable variables such as heart rate and steps are available. Therefore, the meal-proxy pathway is not actually being exercised in the forecast horizon. This makes any meal counterfactual interpretation invalid at this stage.
+
+\GeneratedScenarioTables
+
+\GeneratedScenarioFigures
+
+The conclusion from this section is therefore conservative. The current proxy scenario outputs should be described as pathway diagnostics only. They should not be interpreted as treatment recommendations, carbohydrate counterfactuals, insulin counterfactuals, or reliable behavioral simulations. A scientifically interpretable scenario model would require either real prospective action logs or additional training that forces the model to use the scenario channel and validates the resulting direction of effect against observed episodes.

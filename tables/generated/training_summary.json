@@ -1,0 +1,105 @@
+{
+  "best_val_pinball_mgdl": 3.2863162296502293,
+  "history": [
+    {
+      "epoch": 0,
+      "seconds": 241.75882959199953,
+      "anchors_per_s": 3089.243943066787,
+      "peak_mem_mb": 897.060864,
+      "train_pinball_mgdl": 3.5625257341597325,
+      "n_train_anchors": 746852,
+      "val_pinball_mgdl": 3.423082323065454,
+      "n_val_anchors": 168481
+    },
+    {
+      "epoch": 1,
+      "seconds": 158.44097277699984,
+      "anchors_per_s": 4713.75545674772,
+      "peak_mem_mb": 744.36608,
+      "train_pinball_mgdl": 3.394202698090662,
+      "n_train_anchors": 746852,
+      "val_pinball_mgdl": 3.3298312668424472,
+      "n_val_anchors": 168481
+    },
+    {
+      "epoch": 2,
+      "seconds": 158.60610449199885,
+      "anchors_per_s": 4708.847760886002,
+      "peak_mem_mb": 744.36608,
+      "train_pinball_mgdl": 3.3391914243266534,
+      "n_train_anchors": 746852,
+      "val_pinball_mgdl": 3.2977840899826796,
+      "n_val_anchors": 168481
+    },
+    {
+      "epoch": 3,
+      "seconds": 159.1313589599995,
+      "anchors_per_s": 4693.304983260619,
+      "peak_mem_mb": 744.36608,
+      "train_pinball_mgdl": 3.304082985846748,
+      "n_train_anchors": 746852,
+      "val_pinball_mgdl": 3.3247931080679716,
+      "n_val_anchors": 168481
+    },
+    {
+      "epoch": 4,
+      "seconds": 158.2259493599995,
+      "anchors_per_s": 4720.161282146863,
+      "peak_mem_mb": 744.36608,
+      "train_pinball_mgdl": 3.280374236201825,
+      "n_train_anchors": 746852,
+      "val_pinball_mgdl": 3.3155719505094874,
+      "n_val_anchors": 168481
+    },
+    {
+      "epoch": 5,
+      "seconds": 230.41364075900128,
+      "anchors_per_s": 3241.3532355975485,
+      "peak_mem_mb": 897.060864,
+      "train_pinball_mgdl": 3.2630909936912778,
+      "n_train_anchors": 746852,
+      "val_pinball_mgdl": 3.2863162296502293,
+      "n_val_anchors": 168481
+    },
+    {
+      "epoch": 6,
+      "seconds": 154.65398361400003,
+      "anchors_per_s": 4829.18048761074,
+      "peak_mem_mb": 744.36608,
+      "train_pinball_mgdl": 3.2429025972481926,
+      "n_train_anchors": 746852,
+      "val_pinball_mgdl": 3.3210958817565244,
+      "n_val_anchors": 168481
+    },
+    {
+      "epoch": 7,
+      "seconds": 154.59737949999908,
+      "anchors_per_s": 4830.948638427629,
+      "peak_mem_mb": 744.36608,
+      "train_pinball_mgdl": 3.2248289649804165,
+      "n_train_anchors": 746852,
+      "val_pinball_mgdl": 3.3058770332110234,
+      "n_val_anchors": 168481
+    },
+    {
+      "epoch": 8,
+      "seconds": 153.42040396499942,
+      "anchors_per_s": 4868.009604318231,
+      "peak_mem_mb": 744.36608,
+      "train_pinball_mgdl": 3.2133145940524837,
+      "n_train_anchors": 746852,
+      "val_pinball_mgdl": 3.2998746259354244,
+      "n_val_anchors": 168481
+    },
+    {
+      "epoch": 9,
+      "seconds": 154.22426335699856,
+      "anchors_per_s": 4842.636195779297,
+      "peak_mem_mb": 744.36608,
+      "train_pinball_mgdl": 3.196662731965681,
+      "n_train_anchors": 746852,
+      "val_pinball_mgdl": 3.31852921601917,
+      "n_val_anchors": 168481
+    }
+  ]
+}
