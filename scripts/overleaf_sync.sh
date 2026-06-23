@@ -21,7 +21,7 @@ REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 OVERLEAF_REMOTE="overleaf"
 OVERLEAF_URL="https://git@git.overleaf.com/6a393f237e2c170adf310484"
 SUBTREE_PREFIX="report"
-OVERLEAF_BRANCH="master"   # Overleaf always uses master on its side
+OVERLEAF_BRANCH="main"     # Overleaf now requires main
 
 cd "$REPO_ROOT"
 
