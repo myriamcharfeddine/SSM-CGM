@@ -471,6 +471,26 @@ This report presents one of three planned studies.
 
 \textbf{Study 1: Meal Counterfactual Audit} (this section). Concludes that AI-READI does not support a meal counterfactual with any constructible label. The boundary is established by three convergent checks: orthogonalization, glucose-defined arm inversion, and wearable arm dose-scaled null. The recommended next step is evaluation on a dataset with exogenous meal annotations.
 
-\textbf{Study 2: Insulin and Medication Counterfactuals.} Asks whether the scenario-aware channel supports a valid insulin-dose or medication-adherence counterfactual on AI-READI, where external covariates provide labeling that does not depend on the CGM slope. The insulin quarantine and the low-confidence medication flags established in this report define the scope of that evaluation.
+\textbf{Study 2: Online Event-Aware Residual Forecast Correction} (Section~\ref{sec:study2}).
+Asks whether a lightweight correction head trained on 19 causal trailing features
+(residual history, standardised surprise history, glucose slopes, causal curvature,
+interval width, current glucose, trigger-phase features, and circadian proxy) can
+reduce forecast error at triggered windows without using future labels or meal
+annotations.
+The frozen base checkpoint is reused without retraining.
+A 5-minute rolling forecast cache was built specifically for Study~2 because
+the rolling-3-anchor surprise trigger requires one-step forecasts at every anchor;
+the 15-minute stride cache used in base evaluation cannot reconstruct these.
+Separate up- and down-heads are trained; the final head (Ridge full, split up/down)
+is selected on validation only and beats the best simple causal baseline by
+$0.122$~mg/dL on the test split (95\% CI $[-0.163,\;-0.091]$, CI excludes zero).
+AI-READI contains no confirmed meal timestamps and no insulin-dose or
+insulin-on-board logs; the event-enriched proxy used for descriptive analysis
+is a glucose-level proxy only.
 
-\textbf{Study 3: Downstream Clinical Decision Support.} Asks whether the SSM-CGM streaming distribution, with or without a valid counterfactual channel, supports reliable hyperglycemia or hypoglycemia risk alerts at the operating points identified by the pre-rise detector. This study uses the hyperglycemia AUPRC and recall endpoints already reported in Table~\ref{tab:t1_ablation} as its primary metrics.
+\textbf{Study 3: True Meal Counterfactual on an Exogenous-Label Dataset.}
+Asks whether the scenario-aware channel supports a causal meal counterfactual on a
+dataset with prospective meal logging (for example, T1DEXI or CGMacros).
+Study~1 establishes that AI-READI cannot serve this role because no constructible
+label carries pre-rise causal information orthogonal to the CGM slope.
+Study~3 requires an exogenous label not derivable from the CGM itself.
