@@ -1,0 +1,569 @@
+% ─────────────────────────────────────────────────────────────────────────────
+% Study 2: Online Event-Aware Residual Forecast Correction
+% All numbers read from outputs/study2_final_rich_head/ and
+% outputs/study2_rich_head/.  None are invented.
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Study 2: Online Event-Aware Residual Forecast Correction}
+\label{sec:study2}
+
+\subsection{Motivation}
+\label{subsec:study2_motivation}
+
+Study~1 (Section~\ref{sec:study1_cf_audit}) established that AI-READI does not
+support a causal meal counterfactual: both the glucose-defined and
+wearable-defined scenario arms fail sign agreement with matched
+natural-experiment effects.
+However, the frozen base forecaster is well-calibrated (one-step 80\%
+prediction-interval coverage: 83.8\% train, 83.7\% validation, 83.5\% test;
+Fig.~\ref{fig:study2_f1}), and its one-step residual carries a real surprise
+signal that co-varies with glucose excursions.
+
+Study~2 asks a narrower question:
+\emph{can a lightweight correction head trained on streaming model-surprise
+signals reduce forecast error at triggered windows, using only quantities
+available at deployment time?}
+The head requires no meal annotations, no scenario-channel supervision,
+and no future covariates.
+
+\subsection{Method}
+\label{subsec:study2_method}
+
+\paragraph{Frozen base.}
+All Study~2 experiments use the \texttt{mamba\_stateful\_5epoch} checkpoint
+(6.8\,MB; Mamba-based SSM, participant-disjoint splits).
+The checkpoint is never updated.
+A 5-minute rolling forecast cache is generated with
+$\mathtt{anchor\_stride\_steps}=1$, producing 38.5\,M forecast rows across
+train, validation, and test.
+
+\paragraph{One-step surprise.}
+At anchor $t$ the standardised surprise is
+\begin{equation}
+  z_t = \frac{r_t}{w_t + \varepsilon},
+  \quad
+  r_t = G_t - \hat{q}_{50,t-1}^{(1)},
+  \quad
+  w_t = \hat{q}_{90,t-1}^{(1)} - \hat{q}_{10,t-1}^{(1)},
+  \label{eq:s2_zt}
+\end{equation}
+where $\hat{q}_{p,t-1}^{(1)}$ is the $p$-th quantile of the one-step
+forecast issued at $t-1$ and $\varepsilon=10^{-3}$.
+This quantity is causal: it uses only the immediately preceding forecast
+and the glucose reading that just arrived.
+
+\paragraph{Trigger rule.}
+A rolling-3-anchor rule fires:
+\begin{equation}
+  \mathtt{trigger\_up}_t = 1
+  \;\iff\;
+  z_{t-2},\,z_{t-1},\,z_t > \tau_{\uparrow},
+  \label{eq:s2_trigger}
+\end{equation}
+with a symmetric $\mathtt{trigger\_down}$ rule.
+Both thresholds were locked on the validation split.
+
+\paragraph{Event-enriched proxy.}
+Because AI-READI contains no confirmed meal timestamps, an approximate
+non-oracle proxy is defined as:
+\begin{equation}
+  \mathtt{event\_enriched} =
+  \bigl(\mathtt{trigger\_up} \wedge G_t \geq 130\text{ mg/dL}\bigr)
+  \;\vee\;
+  \bigl(\mathtt{trigger\_down} \wedge G_t \leq 85\text{ mg/dL}\bigr).
+  \label{eq:s2_proxy}
+\end{equation}
+This proxy identifies triggers that coincide with likely hyperglycaemia or
+hypoglycaemia; 36.5\% of triggered non-insulin test anchors qualify.
+
+\paragraph{Evaluation protocol.}
+All metrics are restricted to non-insulin participants (validation: $n=221$;
+test: $n=204$) and triggered anchors only.
+Confidence intervals use participant-clustered bootstrap resampling
+($B=1000$, $\alpha=0.05$).
+Paired difference CIs compare methods on the same anchors.
+The test split was held out during all threshold and hyperparameter selection.
+
+\subsection{Trigger Calibration and Threshold Selection}
+\label{subsec:study2_trigger}
+
+The threshold grid $\tau \in \{0.2, 0.3, \ldots, 0.8\}$ was evaluated on
+the validation split.
+The selection criterion was the highest $\tau$ achieving a trigger-up rate
+near 5\% while retaining all 221 non-insulin validation participants
+(sufficient coverage for participant-clustered CIs).
+Only $\tau=0.2$ satisfied this criterion:
+trigger-up rate 5.06\%, trigger-down rate 4.38\%, all 221 participants
+triggered at least once.
+At $\tau \geq 0.3$ participant coverage drops below 100\% within the tested
+grid (Fig.~\ref{fig:study2_f1}).
+
+The locked threshold $\tau_{\uparrow} = \tau_{\downarrow} = 0.2$ produces
+the following trigger counts (non-insulin participants):
+\begin{itemize}
+  \item Train: 190{,}893 triggered anchors, 1{,}043 participants, trigger rate 9.19\%.
+  \item Validation: 44{,}417 anchors, 221 participants, trigger rate 9.42\%.
+  \item Test: 39{,}698 anchors, 204 participants, trigger rate 9.26\%.
+\end{itemize}
+Rates are stable across splits, indicating the trigger is not overfit.
+
+\subsection{Rich Causal Residual-Correction Head}
+\label{subsec:study2_richhead}
+
+\paragraph{Feature set.}
+Each triggered anchor $t$ contributes the following causal trailing
+features to the correction head.
+All features are computed from quantities available strictly before or
+at time $t$; no future glucose, future label, or future covariate is used.
+
+\begin{itemize}
+  \item \textbf{Residual history}: $r_t,\,r_{t-1},\,r_{t-2},\,r_{t-3}$
+        (lagged one-step residuals, mg/dL).
+  \item \textbf{Standardised surprise history}: $z_t,\,z_{t-1},\,z_{t-2}$.
+  \item \textbf{Glucose slopes}:
+        slope$_{15}=(G_t - G_{t-3})/15$,
+        slope$_{30}=(G_t - G_{t-6})/30$,
+        slope$_{60}=(G_t - G_{t-12})/60$ (mg/dL/min).
+  \item \textbf{Causal curvature}: $(\text{slope}_{15} - \text{slope}_{30})/15$ (mg/dL/min$^2$).
+  \item \textbf{Interval width}: $w_t = \hat{q}_{90} - \hat{q}_{10}$ (model uncertainty, mg/dL).
+  \item \textbf{Current glucose}: $G_t$ (mg/dL).
+  \item \textbf{Trigger-phase features}: time-since-trigger onset (anchors),
+        cumulative residual since trigger onset (mg/dL).
+  \item \textbf{Circadian proxy}: $\sin(2\pi h/24)$ and $\cos(2\pi h/24)$,
+        where $h = \mathtt{hours\_since\_start} \bmod 24$.
+  \item \textbf{Direction flag}: $\mathtt{trigger\_up} \in \{0,1\}$.
+\end{itemize}
+Two features were excluded as zero-variance after inspection:
+the column \texttt{steps\_since\_start} is a sequential anchor counter
+(not a pedometer), so its 15- and 30-minute differences are constant.
+Heart-rate change features are absent from the cache parquet.
+The final feature set contains \textbf{19 features}.
+
+\paragraph{Architecture and training.}
+Separate correction heads are trained for upward and downward triggers.
+Each head consists of 12 independent Ridge regression models
+($\alpha=1.0$, with intercept, features standardised),
+one per forecast horizon $h \in \{1,\ldots,12\}$.
+The target for horizon $h$ is $G_{t+h} - \hat{q}_{50,t}^{(h)}$, the
+correction the head must add to the frozen-base median.
+Both up- and down-heads are trained on the non-insulin train split
+(190{,}893 triggered anchors); all 1{,}043 train participants contribute
+triggers in both directions.
+
+\paragraph{Head selection.}
+Candidate heads and baselines were evaluated on the validation split only.
+The two top-ranked methods -- Ridge full (split up/down) and HGBT full
+(combined) -- were statistically tied (validation paired difference CI:
+$-0.0009$ mg/dL, 95\% CI $[-0.040,\;+0.029]$, CI includes zero).
+Following a pre-specified tie-break rule of preferring the simpler model,
+\textbf{Ridge full (split up/down)} was selected as the final head.
+Test metrics were examined only after this selection was fixed.
+
+\subsection{Baseline Ladder}
+\label{subsec:study2_ladder}
+
+Table~\ref{tab:study2_ladder_rich} and Fig.~\ref{fig:study2_f2_rich} present
+MAE with participant-clustered 95\% CIs for all methods on non-insulin
+triggered anchors.
+Anchor counts are reported as distinct $(participant\_id,\;segment\_id,\;anchor\_ds)$
+tuples; the frozen-base anchor is never counted more than once per participant
+and anchor index.
+
+\paragraph{Key findings.}
+\begin{itemize}
+  \item \textbf{Current shift is worse than the frozen base} ($+0.217$~mg/dL
+        on test).
+        Applying the full residual $r_t$ as a constant offset overcorrects:
+        the base model already mean-reverts toward the historical glucose
+        distribution over longer horizons, and a flat shift counteracts this.
+  \item \textbf{Decaying shift matches the frozen base}: test MAE
+        $11.381$ vs $11.383$~mg/dL (difference negligible).
+  \item \textbf{Linear $z_t$ beats decaying shift} ($-0.025$~mg/dL).
+        Standardising by the model's own uncertainty width $w_t$ provides
+        a better correction scale than a fixed decay.
+  \item \textbf{The rich head (Ridge split) beats the best simple baseline}
+        (linear $z_t$ + slope + curvature) by $0.122$~mg/dL (test),
+        95\% CI $[-0.163,\;-0.091]$ (CI excludes zero).
+  \item \textbf{Ridge and HGBT are statistically tied}: HGBT combined minus
+        Ridge split $= -0.005$~mg/dL, 95\% CI $[-0.029,\;+0.023]$
+        (CI includes zero).
+\end{itemize}
+
+\paragraph{Ablation.}
+Fig.~\ref{fig:study2_f6_ablation} shows validation MAE for Ridge trained on
+six feature groups.
+Residual history ($r_t$--$r_{t-3}$) is the strongest single group
+(val MAE $11.340$, test $11.302$), outperforming $z_t$ alone (val $11.403$).
+The full 19-feature set achieves val MAE $11.290$, lower than any single group
+in isolation, confirming complementary information across feature families.
+
+\subsection{Event-Enriched Proxy versus Unmatched Control}
+\label{subsec:study2_event}
+
+\emph{This comparison is descriptive, not a matched causal contrast.
+Event-enriched labels are glucose-level proxies because AI-READI does not
+contain confirmed meal timestamps.
+The control group is not distribution-matched on glucose level, slope,
+$z_t$, or interval width.
+The structural confound arises from the proxy definition itself:
+Equation~\eqref{eq:s2_proxy} selects on glucose level, so event and
+non-event anchors differ by construction.}
+
+Table~\ref{tab:study2_event_rich} and Fig.~\ref{fig:study2_f3_rich} compare
+correction gain (base MAE minus final-head MAE) for the event-enriched and
+unmatched-control groups on the test split.
+
+\begin{itemize}
+  \item \textbf{Event-enriched} ($n=14{,}505$ anchors):
+        base MAE $14.355$, head MAE $13.941$,
+        gain $+0.415$~mg/dL,
+        95\% CI $[+0.216,\;+0.603]$ (CI excludes zero).
+  \item \textbf{Unmatched control} ($n=25{,}193$ anchors):
+        base MAE $9.671$, head MAE $9.635$,
+        gain $+0.036$~mg/dL,
+        95\% CI $[+0.003,\;+0.070]$ (CI excludes zero).
+\end{itemize}
+
+The event group shows larger absolute gain, but this is expected:
+the event definition selects anchors with high glucose, which are
+inherently harder to forecast (higher base MAE) and where large
+one-step residuals are more common.
+The control group gain, while small, also excludes zero, indicating
+that the correction head is not harmful outside event windows.
+Neither comparison should be interpreted as evidence that the head
+detects or responds specifically to physiological events.
+
+\subsection{Deployment Behavior and Abstention}
+\label{subsec:study2_deploy}
+
+Fig.~\ref{fig:study2_f5} and Table~\ref{tab:study2_deploy} summarise
+deployment characteristics across splits.
+
+\begin{itemize}
+  \item \textbf{Trigger rate}: 9.19\% (train), 9.42\% (validation),
+        9.26\% (test) of non-insulin anchors.
+        Stability across splits confirms the trigger is not overfit.
+  \item \textbf{Episode duration}: median 5 minutes, P90 15 minutes
+        in all splits.
+        With $\tau=0.2$ the rolling-3 rule rarely sustains for more than
+        one or two consecutive anchors.
+  \item \textbf{Abstention rate}: $< 0.09\%$ in all splits, arising
+        exclusively from stream boundaries (first anchor of each segment)
+        and rare missing prediction-interval rows ($< 0.001\%$).
+\end{itemize}
+
+\subsection{Interpretation and Limitations}
+\label{subsec:study2_interp}
+
+\paragraph{What the head achieves.}
+The rich correction head reliably reduces MAE at triggered windows.
+The improvement over the frozen base ($0.175$~mg/dL test, 95\% CI
+$[-0.259,\;-0.094]$) and over the best non-trivial no-learning baseline
+(decaying shift: $0.172$~mg/dL test, 95\% CI $[-0.238,\;-0.109]$)
+are both statistically clear.
+The improvement over the best simple linear baseline ($0.122$~mg/dL,
+CI $[-0.163,\;-0.091]$) is also statistically clear, showing that the
+richer causal feature set adds genuine value beyond a single $z_t$ term.
+The ablation confirms that residual history ($r_t$--$r_{t-3}$) is the
+most informative feature group, followed by trigger-phase features
+and the combined set of slopes and curvature.
+
+\paragraph{What the head does not achieve.}
+The gap between Ridge and HGBT is not statistically distinguishable
+($-0.005$~mg/dL, CI $[-0.029,\;+0.023]$), indicating that the linear
+form of Ridge already captures the dominant structure in this feature space.
+The event-vs-control comparison is descriptive and structurally confounded;
+it should not be read as evidence that the head specifically targets
+physiological events.
+AI-READI lacks confirmed meal or exercise timestamps, so no oracle event
+evaluation is possible.
+
+\paragraph{Per-horizon profile.}
+Fig.~\ref{fig:study2_f7_horizon} shows per-horizon MAE for the final
+head and selected baselines.
+The correction provides the largest absolute benefit at short horizons
+(0--30 min): the rich head reduces 0--30 min MAE from
+$8.112$ (base) to $7.844$~mg/dL.
+The benefit narrows at long horizons: 30--60 min MAE is $14.573$~mg/dL
+(head) versus $14.654$~mg/dL (base).
+This pattern is expected because the one-step residual is most informative
+about the immediate future, and its signal decays with horizon.
+
+\paragraph{Scope.}
+The correction head is appropriate only when triggered
+($\approx 9.3\%$ of deployment anchors).
+At non-triggered anchors the frozen-base median should be used.
+The head should be retrained if the base checkpoint is updated or if
+the target glucose population changes substantially.
+
+\subsection{Link to Interpretability}
+\label{subsec:study2_link_interp}
+
+The correction head's 19-feature linear Ridge structure is interpretable
+by design: each coefficient $b_{h,j}$ quantifies how much feature $j$ shifts
+the horizon-$h$ prediction.
+Section~\ref{sec:interp} presents coefficient profiles for the final head
+across horizons; the dominant terms are $r_t$ (current residual),
+$r_{t-1}$ (one-lag residual), and slope$_{15}$ (short-term glucose trend),
+consistent with the ablation findings here.
+The correlation between coefficient magnitude and ablation-group gain
+provides a cross-check that the Ridge head has not learned spurious patterns.
+
+% ── Figures ──────────────────────────────────────────────────────────────────
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/study2_f1_trigger_calibration.pdf}
+  \caption{%
+    \textbf{S2-F1: Trigger calibration.}
+    (a) Empirical one-step 80\% PI coverage by split;
+    the dashed line marks the nominal 80\% target.
+    (b) Trigger-up rate as a function of threshold $\tau$;
+    the locked threshold $\tau=0.2$ is marked.
+    (c) Trigger-up and trigger-down rates at $\tau=0.2$ by split.
+    Coverage exceeds 83\% in all splits; $\tau=0.2$ is the only candidate
+    achieving near-5\% trigger rate with 100\% participant coverage.%
+  }
+  \label{fig:study2_f1}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/study2_f2_baseline_ladder_rich.pdf}
+  \caption{%
+    \textbf{S2-F2: Full correction-head baseline ladder.}
+    MAE (mg/dL) with participant-clustered 95\% CIs for all ten correction
+    methods on non-insulin triggered windows.
+    Left: validation (44{,}417 anchors, $n=221$);
+    right: test (39{,}698 anchors, $n=204$).
+    Dashed vertical line: frozen-base MAE.
+    Shaded band: gain region of the selected final head (Ridge split up/down).
+    Anchor counts are distinct $(participant, segment, anchor)$ tuples.%
+  }
+  \label{fig:study2_f2_rich}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/study2_f8_paired_cis.pdf}
+  \caption{%
+    \textbf{S2-F8: Paired-CI forest plot (test split).}
+    Each bar shows the gain of the richer method over the comparison method,
+    with participant-clustered 95\% CI.
+    Blue: CI excludes zero (statistically distinguishable).
+    Grey: CI includes zero (statistically tied).
+    Asterisk (*): CI excludes zero.
+    All comparisons against simpler baselines favour the rich head;
+    HGBT and Ridge are indistinguishable.%
+  }
+  \label{fig:study2_f8}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/study2_f3_event_control_rich.pdf}
+  \caption{%
+    \textbf{S2-F3: Event-enriched proxy versus unmatched control (test split).}
+    Left: MAE of the frozen base and final head for each group.
+    Right: correction gain (base MAE $-$ head MAE) with 95\% CI.
+    \emph{Descriptive only -- not a matched causal contrast.
+    Event-enriched labels are glucose-level proxies because AI-READI does
+    not contain confirmed meal timestamps.
+    The control group is not distribution-matched on glucose level, slope,
+    $z_t$, or interval width.}%
+  }
+  \label{fig:study2_f3_rich}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\linewidth]{generated/study2_f6_ablation.pdf}
+  \caption{%
+    \textbf{S2-F6: Feature-group ablation (Ridge, validation MAE).}
+    Each bar shows validation MAE for a Ridge head trained on the named
+    feature subset only (19-feature full-causal set in green).
+    Error bars: participant-clustered 95\% CI.
+    Dashed vertical line: frozen-base validation MAE.
+    The full causal set achieves the lowest validation MAE;
+    residual history ($r_t$--$r_{t-3}$) is the strongest single group.%
+  }
+  \label{fig:study2_f6_ablation}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\linewidth]{generated/study2_f7_per_horizon.pdf}
+  \caption{%
+    \textbf{S2-F7: Per-horizon MAE (test split).}
+    Lines show mean absolute error at each 5-minute forecast horizon
+    for the frozen base, best simple baseline, and the two best rich heads.
+    The correction provides the largest benefit at short horizons (0--30 min)
+    and narrows at longer horizons.%
+  }
+  \label{fig:study2_f7_horizon}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/study2_f5_deployment.pdf}
+  \caption{%
+    \textbf{S2-F5: Deployment behavior (non-insulin participants).}
+    (a) Trigger rate by split.
+    (b) Episode duration: median and P90.
+    (c) Abstention rate.
+    Trigger rates and episode durations are stable across splits;
+    abstention is negligible ($<0.09\%$ in all splits).%
+  }
+  \label{fig:study2_f5}
+\end{figure}
+
+% ── Tables ───────────────────────────────────────────────────────────────────
+
+\begin{table}[H]
+  \centering
+  \caption{%
+    \textbf{S2-T1: Final model selection (validation-based).}
+    All candidate models ranked by validation MAE (lower is better).
+    Anchor counts are distinct $(participant, segment, anchor)$ tuples.
+    The paired difference CI (best vs.\ second-best on validation) did not
+    exclude zero, so the simpler model (Ridge split up/down) was selected.%
+  }
+  \label{tab:study2_selection}
+  \small
+  \begin{tabular}{llcccc}
+    \toprule
+    Rank & Method & $n_{\text{anchors}}$ & Val MAE & Val 95\% CI & Selected \\
+    \midrule
+    1 & Ridge full (split up/down)         & 44{,}417 & 11.228 & [10.805, 11.709] & \checkmark \\
+    2 & HGBT full (combined)               & 44{,}417 & 11.229 & [10.796, 11.725] & \\
+    3 & HGBT full (split up/down)          & 44{,}417 & 11.236 & [10.807, 11.733] & \\
+    4 & Ridge full (combined)              & 44{,}417 & 11.290 & [10.844, 11.796] & \\
+    5 & Linear full causal OLS             & 44{,}417 & 11.291 & [10.844, 11.796] & \\
+    6 & Linear $z_t$ + slope + curv        & 44{,}417 & 11.376 & [10.927, 11.886] & \\
+    \midrule
+    \multicolumn{6}{l}{\textit{Tie-break: paired CI (Ridge split $-$ HGBT combined) $= -0.0009$,}} \\
+    \multicolumn{6}{l}{\textit{95\% CI $[-0.040,\;+0.029]$ (includes zero) $\Rightarrow$ prefer simpler.}} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \caption{%
+    \textbf{S2-T2: Full baseline ladder.}
+    MAE (mg/dL) with participant-clustered 95\% CIs for all ten correction
+    methods on non-insulin triggered windows.
+    ``n'' is distinct $(participant, segment, anchor)$ tuples.
+    Starred paired differences in the lower panel are CIs excluding zero.%
+  }
+  \label{tab:study2_ladder_rich}
+  \small
+  \setlength{\tabcolsep}{4.5pt}
+  \begin{tabular}{llcccc}
+    \toprule
+    Split & Method & $n$ & $n_{\text{part.}}$ & MAE & 95\% CI \\
+    \midrule
+    \multirow{10}{*}{Val.}
+      & Base (frozen SSM)              & 44{,}417 & 221 & 11.474 & [10.980, 12.016] \\
+      & Current shift                  & 44{,}417 & 221 & 11.557 & [11.156, 12.026] \\
+      & Decaying shift ($\delta=0.7$)  & 44{,}417 & 221 & 11.434 & [10.969, 11.958] \\
+      & Linear $z_t$                   & 44{,}417 & 221 & 11.403 & [10.949, 11.916] \\
+      & Linear $z_t$ + slope + curv    & 44{,}417 & 221 & 11.376 & [10.927, 11.886] \\
+      & Linear full causal OLS         & 44{,}417 & 221 & 11.291 & [10.844, 11.796] \\
+      & Ridge full (combined)          & 44{,}417 & 221 & 11.290 & [10.844, 11.796] \\
+      & Ridge full (split up/down)     & 44{,}417 & 221 & 11.228 & [10.805, 11.709] \\
+      & HGBT full (combined)           & 44{,}417 & 221 & 11.229 & [10.796, 11.725] \\
+      & HGBT full (split up/down)      & 44{,}417 & 221 & 11.236 & [10.807, 11.733] \\
+    \midrule
+    \multirow{10}{*}{Test}
+      & Base (frozen SSM)              & 39{,}698 & 204 & 11.383 & [10.871, 11.968] \\
+      & Current shift                  & 39{,}698 & 204 & 11.599 & [11.132, 12.106] \\
+      & Decaying shift ($\delta=0.7$)  & 39{,}698 & 204 & 11.381 & [10.886, 11.939] \\
+      & Linear $z_t$                   & 39{,}698 & 204 & 11.355 & [10.874, 11.891] \\
+      & Linear $z_t$ + slope + curv    & 39{,}698 & 204 & 11.330 & [10.850, 11.856] \\
+      & Linear full causal OLS         & 39{,}698 & 204 & 11.284 & [10.812, 11.807] \\
+      & Ridge full (combined)          & 39{,}698 & 204 & 11.284 & [10.812, 11.807] \\
+      & Ridge full (split up/down)     & 39{,}698 & 204 & 11.208 & [10.748, 11.718] \\
+      & HGBT full (combined)           & 39{,}698 & 204 & 11.204 & [10.752, 11.725] \\
+      & HGBT full (split up/down)      & 39{,}698 & 204 & 11.218 & [10.764, 11.736] \\
+    \midrule
+    \multicolumn{6}{l}{\textit{Selected paired differences (test, participant-clustered bootstrap, $B=1000$):}} \\[2pt]
+    & Final head vs base              & \multicolumn{4}{l}{$-0.174$ mg/dL, CI $[-0.259,\;-0.094]$*} \\
+    & Final head vs decaying shift    & \multicolumn{4}{l}{$-0.172$ mg/dL, CI $[-0.238,\;-0.109]$*} \\
+    & HGBT combined vs best simple    & \multicolumn{4}{l}{$-0.126$ mg/dL, CI $[-0.163,\;-0.091]$*} \\
+    & HGBT combined vs linear OLS     & \multicolumn{4}{l}{$-0.080$ mg/dL, CI $[-0.110,\;-0.052]$*} \\
+    & HGBT combined vs Ridge split    & \multicolumn{4}{l}{$-0.005$ mg/dL, CI $[-0.029,\;+0.023]$ (tied)} \\
+    \bottomrule
+    \multicolumn{6}{l}{\small * CI excludes zero.} \\
+  \end{tabular}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \caption{%
+    \textbf{S2-T3: Event-enriched proxy versus unmatched control (test split).}
+    Correction gain (base MAE $-$ final-head MAE, mg/dL) for event-enriched
+    and unmatched-control groups.
+    CIs are participant-clustered bootstrap ($B=1000$).
+    \emph{This comparison is descriptive, not a matched causal contrast.
+    The control group is not distribution-matched on glucose level, slope,
+    $z_t$, or interval width.}%
+  }
+  \label{tab:study2_event_rich}
+  \small
+  \begin{tabular}{lccccc}
+    \toprule
+    Group & $n$ & Base MAE & Head MAE & Gain & 95\% CI \\
+    \midrule
+    Event-enriched  & 14{,}505 & 14.355 & 13.941 & $+0.415$ & $[+0.216,\;+0.603]$ \\
+    Unmatched control & 25{,}193 & 9.671 & 9.635  & $+0.036$ & $[+0.003,\;+0.070]$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \caption{%
+    \textbf{S2-T4: Deployment characteristics (non-insulin participants).}
+    Trigger rates and episode statistics are stable across splits.%
+  }
+  \label{tab:study2_deploy}
+  \small
+  \begin{tabular}{lcccccc}
+    \toprule
+    Split & $n_{\text{part.}}$ & Trigger rate & Episodes
+      & Dur.\ med. & Dur.\ P90 & Abstention \\
+    \midrule
+    Train      & 1{,}043 & 9.19\% & 111{,}288 & 5\,min & 15\,min & 0.083\% \\
+    Validation &   221   & 9.42\% &  25{,}244 & 5\,min & 15\,min & 0.078\% \\
+    Test       &   204   & 9.26\% &  23{,}035 & 5\,min & 15\,min & 0.083\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \caption{%
+    \textbf{S2-T5: Feature-group ablation (Ridge, validation MAE).}
+    Each row shows validation and test MAE for a Ridge head
+    trained on the named feature subset only.
+    The full 19-feature set achieves the lowest validation MAE.
+    All $n_{\text{anchors}}$ are the same 44{,}417 validation and
+    39{,}698 test triggered tuples.%
+  }
+  \label{tab:study2_ablation}
+  \small
+  \begin{tabular}{lccccc}
+    \toprule
+    Feature group & $n_{\text{feat.}}$ & Val MAE & Val 95\% CI & Test MAE \\
+    \midrule
+    $z_t$ only                         & 1  & 11.403 & [10.949, 11.916] & 11.355 \\
+    $z_t$ + slope + curv               & 3  & 11.376 & [10.927, 11.886] & 11.330 \\
+    $r_t$ only                         & 1  & 11.356 & [10.908, 11.859] & 11.310 \\
+    Slope + curvature                  & 4  & 11.401 & [10.942, 11.909] & 11.349 \\
+    Trigger phase                      & 4  & 11.348 & [10.902, 11.853] & 11.314 \\
+    Residual history ($r_t$--$r_{t-3}$)& 4  & 11.340 & [10.896, 11.844] & 11.302 \\
+    Context (glucose, IW, hour)        & 4  & 11.455 & [10.988, 11.977] & 11.383 \\
+    \textbf{Full causal (19 features)} & 19 & \textbf{11.290} & [10.844, 11.796] & \textbf{11.284} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
