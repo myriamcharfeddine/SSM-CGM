@@ -3,13 +3,13 @@
 % All numbers read from outputs/study2_final_rich_head/ and
 % outputs/study2_rich_head/.  None are invented.
 % ─────────────────────────────────────────────────────────────────────────────
-\section{Study 2: Online Event-Aware Residual Forecast Correction}
+\section{ Online Event-Aware Residual Forecast Correction}
 \label{sec:study2}
 
 \subsection{Motivation}
 \label{subsec:study2_motivation}
 
-Study~1 (Section~\ref{sec:study1_cf_audit}) established that AI-READI does not
+Section~\ref{sec:study1_cf_audit} established that AI-READI does not
 support a causal meal counterfactual: both the glucose-defined and
 wearable-defined scenario arms fail sign agreement with matched
 natural-experiment effects.
@@ -18,7 +18,7 @@ prediction-interval coverage: 83.8\% train, 83.7\% validation, 83.5\% test;
 Fig.~\ref{fig:study2_f1}), and its one-step residual carries a real surprise
 signal that co-varies with glucose excursions.
 
-Study~2 asks a narrower question:
+Section ~\ref{sec:study1_cf_audit}  asks a narrower question:
 \emph{can a lightweight correction head trained on streaming model-surprise
 signals reduce forecast error at triggered windows, using only quantities
 available at deployment time?}
