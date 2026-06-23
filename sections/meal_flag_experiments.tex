@@ -3,32 +3,31 @@
 
 \subsection{Motivation}
 \label{subsec:meal-motivation}
-AI-READI contains CGM, wearable signals, and static clinical descriptors, but not logged meals or carbohydrate doses \citep{aireadi2024}. The existing \texttt{predmeal\_flag} was therefore not a ground truth meal annotation, it is only a proxy scenario channel. The goal of this section is therefore narrower than simply asking whether “meal flags improve forecasting.” The real question is: can any deployable meal state representation add useful forecasting information beyond what the model already knows from current glucose level, recent glucose slope, and time of day? The pipeline is summarized in Fig.~\ref{fig:meal-pipeline} and Table~\ref{tab:meal-pipeline-summary}.
+AI-READI contains CGM, wearable signals, and static clinical descriptors, but not prospectively logged meals or carbohydrate doses \citep{aireadi2024}. The existing \texttt{predmeal\_flag} was therefore only a proxy scenario channel. We rebuilt the meal pathway as a weak-supervision problem and then asked a narrower question, whether any deployable meal feature improves held-out forecasting on the endpoints where a meal actually acts. The pipeline is summarized in Fig.~\ref{fig:meal-pipeline} and Table~\ref{tab:meal-pipeline-summary}.
 
-\begin{figure}[h!]
+\begin{figure}[t]
     \centering
     \includegraphics[width=\textwidth]{figures/meal_flags/meal_pipeline.pdf}
     \caption{Meal-flag improvement pipeline. The CGMacros teacher and the retrospective state decoder are diagnostic weak-supervision sources, the online Track A decoder and the causal student probability are the deployable candidates.}
     \label{fig:meal-pipeline}
 \end{figure}
-\begin{table}[h!]
+
+\begin{table}[t]
     \centering
     \caption{Meal-transfer pipeline summary.}
     \label{tab:meal-pipeline-summary}
     \input{tables/meal_flags/meal_pipeline_summary}
 \end{table}
 
-\subsection{Transfer of the CGMacros meal detector}
+\subsection{Transfer of the CGMacros Meal Detector}
 \label{subsec:meal-transfer-teacher}
-The original meal detector transferred from CGMacros uses a dilated CNN followed by a two-layer bidirectional LSTM. It processes 6 hour CGM windows sampled every five minutes. Because the LSTM is bidirectional, the prediction at a given anchor can depend on CGM values after that anchor. However, if the detector can read future glucose, then it can identify the rise caused by a meal after the rise has already begun. That makes it useful as a retrospective diagnostic, but not as a deployable meal signal available at time (t). It also means that any forecasting gain from this bidirectional teacher may come from future glucose leakage rather than from true meal anticipation.
+The source audit recovered the CGMacros detector as a dilated CNN followed by a two-layer bidirectional LSTM and a per-time-step logit head over 72-sample, six hour windows of 5-minute CGM. Because the LSTM is bidirectional, the teacher probability at an anchor depends on CGM samples after the anchor, up to roughly six hours ahead. That window overlaps the forecast horizon, so the retrospective teacher reads future glucose about the exact quantity being forecast. We therefore treat the bidirectional teacher as a leakage diagnostic, not as a reachable target.
 
-For this reason, the bidirectional teacher is not treated as a valid causal input. It is kept as a leakage diagnostic: it shows how much performance can be obtained when future glucose is accidentally allowed into the feature
-
-\subsection{Correction of the AI-READI meal flag model}
+\subsection{Correction of the AI-READI Meal-Flag Reconstruction}
 \label{subsec:meal-reconstruction}
-The original downstream artifact kept only a thresholded binary flag and discarded the teacher's continuous probability. Reconstructing overlap-averaged probabilities recovered finite values for 99.3\% of rows and a corrected teacher flag rate of 0.114, compared with 0.042 for the surviving old binary artifact. The reconstruction is a faithful recovery of the source signal, but the source signal is itself bidirectional, so neither the corrected probability nor the surviving \texttt{predmeal\_flag} is causal. Figure~\ref{fig:meal-teacher-reconstruction} shows the information loss of the old artifact.
+The original downstream artifact preserved only a thresholded binary flag and discarded the teacher's continuous probability. Reconstructing overlap-averaged probabilities recovered finite values for 99.3\% of rows and a corrected teacher flag rate of 0.114, compared with 0.042 for the surviving old binary artifact. The reconstruction is a faithful recovery of the source signal, but the source signal is itself bidirectional, so neither the corrected probability nor the surviving \texttt{predmeal\_flag} is causal. Figure~\ref{fig:meal-teacher-reconstruction} shows the information loss of the old artifact.
 
-\begin{figure}[h!]
+\begin{figure}[t]
     \centering
     \includegraphics[width=0.82\textwidth]{figures/meal_flags/teacher_reconstruction.pdf}
     \caption{Corrected teacher reconstruction. The continuous teacher probability is available for nearly all rows, while the old binary artifact is merge-diluted.}
@@ -37,26 +36,17 @@ The original downstream artifact kept only a thresholded binary flag and discard
 
 \subsection{Weak Target-Domain Supervision}
 \label{subsec:meal-weak-supervision}
-Weak labels were constructed from the AI-READI training split using data-driven glucose-response quantiles rather than fixed glucose thresholds. This avoids imposing one universal meal-response definition across participants with very different glycemic profiles.
+Weak labels were built from train-split quantiles, not hard-coded glucose thresholds. Two changes follow the leakage and pooling critique. First, insulin users are quarantined from meal-label training, because a decoded meal-like response in an insulin user often reflects unobserved insulin dynamics rather than a meal; 305,843 insulin rows are removed from the training labels and reported separately as low-confidence meal-like events. Second, the previously discarded uncertain rows are rescued with a soft, ordinal onset-distance target rather than dropped, because the pre-rise transition is the only region where a meal flag can lead the CGM trend; 389,623 of 2,422,111 uncertain rows now carry a nonzero soft target and stay in training. Response size remains a realized glucose-excursion proxy, not carbohydrate grams.
 
-Two changes make the supervision more cautious. First, insulin users are excluded from meal-label training because a meal-like glucose pattern in an insulin-treated participant may reflect unobserved insulin timing rather than food intake. These rows are not discarded from the analysis entirely, but they are treated as lower-confidence metabolic events.
-
-Second, uncertain rows are not simply dropped. Some uncertain windows may correspond to early pre-rise periods, which are precisely the moments where a meal detector could be useful for forecasting. These rows are therefore assigned a soft onset-distance target when appropriate. This allows the model to learn from gradual transitions instead of only from obvious post-meal rises.
-
-The response-size label should also be interpreted carefully. It measures the realized glucose excursion after an event. It is not a carbohydrate amount and should not be described as a meal dose.
-
-\subsection{Causal student model}
+\subsection{Causal Student Model}
 \label{subsec:meal-causal-student}
-The causal student is trained using only information available at or before the current time: past and current CGM, wearable signals, clock features, and static participant context. Teacher outputs and future glucose are used only to construct weak labels; they are not provided to the student at inference. The student performs well as a pseudo label model, but that is not enough to prove it is useful for forecasting. A high AUC or average precision only shows that the student can reproduce the weak labels. The more important test is whether the student adds forecasting information beyond glucose slope, glucose level, and time of day. For this reason, the student is evaluated through the forecasting gate rather than judged only by classification metrics.
+The target-domain student uses past and current glucose, wearable, clock, and static features only, and is now fit as a regressor on the soft onset-distance target over the quarantined, rescued training set. Teacher outputs and future glucose are used only during label construction. A good classification score does not imply a useful forecasting covariate, so the student is judged by the forecasting gate below, not by its pseudo-label AUC.
 
 \subsection{Retrospective and Online Meal-State Decoding}
 \label{subsec:meal-decoders}
-The student probability is converted into structured meal states. The retrospective decoder identifies onset, rising, peak, and recovery phases using information from the full segment, so it is useful for event discovery and interpretation. The online decoder, in contrast, runs strictly forward in time and is the deployable version.
+A duration-constrained retrospective decoder converts the student probability into onset, rising, peak, and recovery states, and a strictly forward-only filter produces the deployable online states. The retrospective response-size proxy is physiologically ordered, mean peak rise increasing from 2.1 to 15.9 to 50.8 mg/dL across small, medium, and large events. The retrospective decoder is an event-discovery diagnostic because it uses full-segment summaries, the online decoder is the deployable candidate. Examples appear in Fig.~\ref{fig:meal-state-examples}.
 
-The decoded response-size categories are physiologically ordered: larger decoded events correspond to larger mean peak glucose rises. This supports the idea that the decoder is capturing real glucose-response structure. However, the retrospective decoder is still not deployable because it uses full segment information. Only the online filter can be considered a causal candidate.
-Examples appear in Fig.~\ref{fig:meal-state-examples}.
-
-\begin{figure}[h!]
+\begin{figure}[t]
     \centering
     \includegraphics[width=\textwidth]{figures/meal_flags/state_examples.pdf}
     \caption{Strictly online decoded meal-state examples. State changes are produced by a forward recursion and do not use future glucose, future wearables, or teacher outputs at inference.}
@@ -66,7 +56,7 @@ Examples appear in Fig.~\ref{fig:meal-state-examples}.
 \subsection{Experimental Feature Representations}
 \label{subsec:meal-feature-representations}
 
-All meal representations are evaluated in the same residual-correction framework. The pretrained SSMCGM-Stream median forecast is kept as the base forecast, and each candidate meal feature is allowed to add a correction to that base prediction. The \texttt{q50} median from the
+All setups share a common residual-correction framework. The \texttt{q50} median from the
 pretrained SSMCGM-Stream model is used as a base forecast, and each candidate meal
 representation $M_t^{(m)}$ is evaluated as an additive residual correction:
 \begin{equation}
@@ -118,7 +108,7 @@ glucose level, slope, and clock already provide.
 Table~\ref{tab:meal-setup-definitions} gives the formal definition of each setup's added
 information, its mathematical representation, and its role in the evaluation.
 
-\begin{table}[h!]
+\begin{table}[t]
 \centering
 \footnotesize
 \renewcommand{\arraystretch}{1.35}
@@ -189,7 +179,7 @@ Whole-horizon MAE60 is not the gate. A 60-minute average washes out the post-pra
 
 The baseline is A', a within-harness residual model on CGM slope, level, and clock only. The harness cost of A' relative to untouched \texttt{q50} is small on the non-insulin cohort, -0.005 mg/dL on MAE60 and -0.344 mg/dL on peak error, so meal comparisons are made against A' rather than against \texttt{q50} to separate the harness penalty from feature value. A' already captures most of the recoverable post-prandial signal, reaching meal-window MAE 13.745 and peak error 10.549 versus 13.856 and 10.893 for \texttt{q50}.
 
-\begin{table}[h!]
+\begin{table}[t]
     \centering
     \caption{Reachable ceiling and leakage diagnostics on the non-insulin cohort. A' is the slope and clock baseline, C' is the leakage-free causal teacher ceiling, C and B are bidirectional-teacher leakage diagnostics. Lower is better for MAE, peak, and time to peak, higher is better for AUPRC and recall.}
     \label{tab:meal-main-results}
@@ -198,7 +188,7 @@ The baseline is A', a within-harness residual model on CGM slope, level, and clo
 
 The leakage-free causal teacher C' is the reachable ceiling, and it sits essentially at A', meal-window MAE 13.724 and peak error 10.542. The old bidirectional teacher C reaches meal-window MAE 11.286 and peak error 8.150, but that gap is leakage, because the only difference between C and C' is whether the teacher window is allowed to read future glucose. The previously reported gain from C, from 14.846 to 12.460 on MAE60, was therefore an oracle effect rather than reachable headroom. The deployable features cluster at A', the student probability D reaching meal-window MAE 13.711 and peak error 10.541, and the online full state H reaching 13.710 and 10.523.
 
-\begin{table}[h!]
+\begin{table}[t]
     \centering
     \caption{Deployable causal representations against A' on the gate endpoints.}
     \label{tab:meal-causal-results}
@@ -207,7 +197,7 @@ The leakage-free causal teacher C' is the reachable ceiling, and it sits essenti
 
 The orthogonalization test explains the clustering. After regressing each feature on slope, level, and clock, the leakage-free causal teacher C' has partial correlation 0.027 with the \texttt{q50} residual, the student probability D has 0.147, while the bidirectional teacher C has 0.519. The large orthogonal signal belongs only to the leaky features, so the deployable features carry little information that the CGM slope does not already provide.
 
-\begin{table}[h!]
+\begin{table}[t]
     \centering
     \caption{Partial-information test against the CGM slope. Partial correlation with the q50 residual after removing slope, level, and clock, and the change in gate endpoints from adding the orthogonalized feature to the slope-only model.}
     \label{tab:meal-partial-information}
@@ -216,49 +206,50 @@ The orthogonalization test explains the clustering. After regressing each featur
 
 \subsection{Leakage Audits and Negative Controls}
 \label{subsec:meal-leakage-controls}
-The leakage audit records the maximum future input offset used by each feature. The student probability and online states have zero future offset, so they are leakage-free. The original \texttt{predmeal\_flag} and legacy bidirectional teacher have a positive future offset, meaning they can read glucose after the anchor time.
-\begin{table}[h!]
+The provenance table records, for each feature, the maximum CGM input offset relative to the anchor. The student probability and the online states have offset zero, while the bidirectional teacher and the \texttt{predmeal\_flag} have a positive offset because their value at an anchor is computed from a window that extends past the anchor. A hard assertion fails the run if any teacher probability used as a selectable input has a positive offset, which is why the default teacher mode is causal.
+
+\begin{table}[t]
     \centering
     \caption{Feature provenance and leakage audit. A positive input offset means the feature can read CGM later than its anchor.}
     \label{tab:meal-feature-provenance}
     \input{tables/meal_flags/meal_feature_provenance}
 \end{table}
 
-The negative controls are the key evidence for whether a feature carries timing-specific information. A real meal feature should perform better at its true timing than when it is shuffled, shifted, or block-shuffled within participant. (Fig.~\ref{fig:meal-negative-controls}). For the deployable student probability, the real versus control gap is small. This means the feature timing does not add much beyond the baseline glucose trajectory. The leaky \texttt{predmeal\_flag} B shows a large real versus control gap, which is consistent with the leakage analysis:  the feature looks strongly predictive because it is partially informed by future glucose.
+The negative controls are the headline evidence. They compare the real feature timing against shuffled, time-shifted, and within-participant block-shuffled timing on the gate endpoints (Fig.~\ref{fig:meal-negative-controls}). For the deployable student probability D, real timing reaches peak error 10.541 against 10.601 shuffled, 10.541 shifted, and 10.500 block-shuffled, so the timing-specific gap is small. The leaky \texttt{predmeal\_flag} B shows a large real-versus-control gap, which is consistent with its bidirectional provenance.
 
-\begin{table}[h!]
+\begin{table}[t]
     \centering
     \caption{Meal-state negative controls on the gate endpoints. Real timing versus shuffled, shifted, and block-shuffled meal features.}
     \label{tab:meal-negative-controls}
     \input{tables/meal_flags/meal_negative_controls}
 \end{table}
 
-\begin{figure}[h!]
+\begin{figure}[t]
     \centering
     \includegraphics[width=\textwidth]{figures/meal_flags/negative_controls.pdf}
     \caption{Negative controls are the central evidence. The real-versus-control gap is the only honest measure of timing-specific meal signal, and it is small for the deployable features on the gate endpoints.}
     \label{fig:meal-negative-controls}
 \end{figure}
 
-\begin{table}[h!]
+\begin{table}[t]
     \centering
     \caption{Coded selection decision on the non-insulin cohort. A feature is selected only if it is leakage free and passes at least two gate endpoints against A' with controls beaten.}
     \label{tab:meal-selection}
     \input{tables/meal_flags/meal_selection_decision}
 \end{table}
-Therefore, for non insulin participants, the online meal states can be described as weak but controlled forecasting features. In insulin users, they should be reported as low-confidence meal like metabolic events rather than literal meal detections.
+
 \subsection{Subgroup and Insulin Sensitivity Analyses}
 \label{subsec:meal-subgroups}
-Insulin users are analyzed separately because AI-READI does not provide insulin timing or dose. Without those variables, many meal-like glucose responses in insulin-treated participants may actually reflect unobserved insulin dynamics.
-In the non-insulin cohort, the online full state (H) gives a small improvement over (A') on peak error and MAE60. The effect is present but modest. In insulin users, the error is larger and the uncertainty is wider, and the same comparison is not clearly favorable.
-\begin{table}[h!]
+Insulin users are quarantined from the gate and reported separately. On the non-insulin cohort the online full state H has peak error 10.523 versus 10.549 for A', a small difference. On insulin users the same comparison has much larger error and wider uncertainty, peak error 13.508 versus 13.456 for A', and MAE60 20.704 versus 20.805. Meal states in insulin users are therefore reported as low-confidence meal-like metabolic events, not literal meal detections.
+
+\begin{table}[t]
     \centering
     \caption{Subgroup results split by insulin status for A', the online full state H, and the student probability D.}
     \label{tab:meal-subgroup-results}
     \input{tables/meal_flags/meal_subgroup_results}
 \end{table}
 
-\begin{figure}[h!]
+\begin{figure}[t]
     \centering
     \includegraphics[width=\textwidth]{figures/meal_flags/insulin_sensitivity.pdf}
     \caption{Insulin versus non-insulin split. The non-insulin story is clean, while uncertainty expands for insulin users.}
@@ -267,13 +258,9 @@ In the non-insulin cohort, the online full state (H) gives a small improvement o
 
 \subsection{Discussion and Limitations}
 \label{subsec:meal-discussion-limitations}
-The coded gate selects the online state representations (G) and (H) on the non-insulin cohort, mainly because they improve meal-window MAE and hyperglycemia AUPRC. However, the effect sizes are small: the improvement is on the order of a few hundredths of a mg/dL for meal-window MAE and a few thousandths for AUPRC. The one-hour peak-error improvement does not survive all negative controls.
+The coded gate selected the following leakage free representations on the non insulin cohort: G on meal-window MAE and hyperglycemia AUPRC; H on meal-window MAE and hyperglycemia AUPRC. These clear the two endpoint bar against A' with shuffled, shifted, and block-shuffled controls beaten, so they may be described as useful on those endpoints. The effect sizes are small, on the order of a few hundredths of a mg/dL on meal-window MAE and a few thousandths on AUPRC, and the one hour peak error improvement does not survive all controls, so the result is a narrow, controlled gain rather than a large one. The reachable causal ceiling C' sits at the slope and clock baseline A', so the apparent gap to the bidirectional teacher is mostly unreachable leakage, not headroom. The partial-information test confirms that the deployable features carry little signal orthogonal to the CGM slope, which is expected because the weak labels are glucose-defined and the slope is already an input to \texttt{q50}. The practical reading is therefore cautious. The selected online states pass the gate only on meal-window MAE and hyperglycemia AUPRC, and only by small margins, while the larger one hour peak error improvement does not survive all three controls, so this is not yet evidence strong enough to justify full SSMCGM retraining. The shape-aware decoder adapter is reported as an ablation only and does not change this conclusion.
 
-The strongest conclusion is therefore not that meal states strongly improve forecasting. The stronger and more rigorous conclusion is that the original large meal-feature gain was mostly caused by future-glucose leakage. Once the meal pathway is made causal, most of the apparent advantage disappears because the remaining information overlaps with current glucose slope and time of day.
-
-At this stage, the meal-state branch is best described as a validated weak-supervision and diagnostic pathway. It is not yet strong enough to justify full SSMCGM retraining as a production meal representation. A future feature would need to provide earlier information that is not already contained in the CGM slope
-
-\begin{figure}[h!]
+\begin{figure}[t]
     \centering
     \includegraphics[width=\textwidth]{figures/meal_flags/retrospective_causal_gap.pdf}
     \caption{Peak error and hyperglycemia AUPRC are the primary axes, with MAE60 demoted to the inset. The reachable causal ceiling C' sits at A', while the C leakage bar is unreachable headroom.}
@@ -286,9 +273,8 @@ At the current checkpoint the meal-state branch is a validated weak-supervision 
 \label{subsec:prerise-wearable-detector}
 
 To evaluate whether wearable signals can provide the missing lead time, we trained three causal feature sets on the binary \texttt{onset\_within\_k} target ($k = 6$ steps, 30 minutes) using a \texttt{HistGradientBoostingClassifier} with participant-disjoint validation. The feature sets are: \texttt{wearable\_only} (steps, heart rate, stress, sleep, clock; no raw CGM), \texttt{shape\_only} (a Kolle-style CGM shape score from a causal trailing window plus clock), and \texttt{wearable\_plus\_shape} (both). Hard leakage assertions prevent any future glucose or future wearable variable from entering the feature matrix. The shape score is permitted because it is computed from a causal trailing CGM window, not from raw level or slope. CGM-only baselines use a two-of-three ROC filter and a Harvey-style grid trigger applied to the same CGM series.
-The motivation: a CGM-only detector usually fires after glucose has already started rising. A useful wearable detector should fire earlier, before the rise is fully visible in CGM. The results show that wearable-based detectors do provide earlier warning than CGM-only baselines, but at the cost of more false positives.
 
-\begin{table}[h!]
+\begin{table}[t]
     \centering
     \caption{Pre-rise detection latency by setup on the non-insulin cohort ($n = 9{,}667$ onsets). Median detection latency $\Delta t$ relative to onset (negative = pre-rise); pre-rise fraction; sensitivity at threshold; false positives per day. Bootstrap 95\% CI from participant resampling.}
     \label{tab:prerise-detection-latency}
@@ -320,11 +306,14 @@ The conclusion mirrors the main pipeline: positive early-warning signal, no sele
 \label{subsec:cf_scenario_retrain}
 % =========================================================
 
-\paragraph{Mask bug:}
-The first thing found is that the scenario application function wrote an active meal value into the scenario channel even when the caller requested a meal-off condition. As a result, the model could not correctly distinguish meal-on from meal-off. In addition, the base model had not been trained with scenario supervision, so the scenario channel was effectively dead. The factual-future gain was approximately zero, confirming that the branch was not being used: Validation factual-future gain $G_{\mathrm{ff}} \approx -0.0037$, indistinguishable from the no-signal baseline.
+\paragraph{Mask bug.}
+An initial audit of the counterfactual path revealed that \texttt{\_apply\_proxy\_scenario} in the streaming evaluator unconditionally wrote \texttt{raw = 1.0} into the scenario channel regardless of the caller-supplied assertion, so every ``meal-off'' forward pass silently carried an active meal signal. The base model trained without scenario supervision had no mechanism to distinguish the two states, and the channel was functionally dead: validation factual-future gain $G_{\mathrm{ff}} \approx -0.0037$, indistinguishable from the no-signal baseline.
 
 \paragraph{Scenario-aware retrain.}
-To test whether the channel could be revived, both the glucose-defined and wearable-defined arms were retrained from a shared base checkpoint using a scenario-aware objective. This objective combined factual-future forecasting loss with an event-window gain term, so the model was explicitly encouraged to use the scenario channel on detected non-insulin event windows. After retraining, the channel became active. Both arms moved from the dead-channel baseline to clearly positive factual-future gain, with the selected checkpoint at epoch 8. This is an important engineering result: the model can be trained to respond to scenario inputs. However, channel responsiveness alone does not prove causal validity. A counterfactual can change the prediction and still have the wrong physiological meaning: At epoch 8, the glucose-defined arm reached validation $G_{\mathrm{ff}} = {+0.64}$ and the wearable arm reached ${+0.42}$, both well above the ${-0.0037}$ baseline (Fig.~\ref{fig:f3_channel_revival}). Positive $G_{\mathrm{ff}}$ is a necessary condition for meaningful counterfactual inference, but it does not alone establish that the model implied effect is a valid causal estimate. 
+Both arms were retrained from a shared five-epoch base checkpoint using a composite loss: factual-future pinball for correctly-asserted scenario windows, plus an event-window gain hinge with $\lambda_{\mathrm{gain}} = 0.1$ that rewards $G_{\mathrm{ff}} > 0$ on detected non-insulin event windows. The glucose-defined arm used the corrected predmeal flag (mean 0.1587, std 0.1346; raw 1.0 transforms to model-space 6.25). The wearable arm used the binary pre-rise score (mean 0, std 1, identity transform; raw 1.0 stays at model-space 1.0).
+
+\paragraph{Channel revival.}
+Both arms successfully revived $G_{\mathrm{ff}}$ from the dead-channel baseline. At epoch 8, the glucose-defined arm reached validation $G_{\mathrm{ff}} = {+0.64}$ and the wearable arm reached ${+0.42}$, both well above the ${-0.0037}$ baseline (Fig.~\ref{fig:f3_channel_revival}). A MAE60 forecast guard prevented checkpoint selection from overfitting: the wearable arm stayed below the guard limit throughout; the glucose arm showed forecast degradation after epoch 11, making epoch 8 the selected checkpoint for both arms. Positive $G_{\mathrm{ff}}$ is a necessary condition for meaningful counterfactual inference, but it does not alone establish that the model-implied effect is a valid causal estimate. The Block 3 audit below assesses that.
 
 \begin{figure}[H]
     \centering
@@ -333,28 +322,38 @@ To test whether the channel could be revived, both the glucose-defined and weara
     \label{fig:f3_channel_revival}
 \end{figure}
 
-We then compared model implied counterfactual effects with matched observed meal-associated episodes. The observed natural-experiment effect was positive: glucose increased by about 22 mg/dL at 60 minutes. A valid meal counterfactual should at least match this direction.
+% =========================================================
+\subsection{Two-Arm Block 3 Counterfactual Evaluation}
+\label{subsec:cf_block3_ab}
+% =========================================================
 
-The glucose defined arm failed this test. Its predicted effect was strongly negative, around -35 mg/dL at 60 minutes, while the observed matched effect was strongly positive. This suggests that the model learned a mean reversion or post rise correction pattern rather than the causal effect of eating.
+Block 3 evaluates the 60-minute counterfactual effect ($\Delta\theta_{60}$) on the non-insulin cohort ($n = 200$ participants) at two operating points drawn from the pre-rise wearable detector: \texttt{wearable\_plus\_shape} (6592 anchors, 11.5 FP/day) and \texttt{wearable\_only} (4547 anchors, 4.9 FP/day). The natural-experiment reference $\Delta_{\mathrm{obs}}$ is $+22.2$ mg/dL at 60 minutes (bootstrap 95\% CI: 21.6 to 22.8), derived from matched non-insulin episodes observed to start and not start in the 30-minute window. A valid counterfactual should produce $\Delta\theta_{60}$ with the same sign as $\Delta_{\mathrm{obs}}$.
 
-The wearable arm did not show the same strong inversion, but its effect was near zero and slightly negative. Increasing the wearable scenario dose to match the model-space scale of the glucose-defined arm made the effect more negative, not positive. This rules out simple under-dosing as the explanation.(Fig.~\ref{fig:f4_cf_ab_headline})
+\paragraph{Glucose-defined arm.}
+Both operating points yield strongly inverted counterfactual effects: $\Delta\theta_{60} = -35.3$ mg/dL (\texttt{wearable\_plus\_shape}, 95\% CI: $-36.2$ to $-34.4$) and $-35.1$ mg/dL (\texttt{wearable\_only}, 95\% CI: $-36.1$ to $-34.2$). The glucose-defined label selects anchors where CGM is already in a pre-excursion shape, which is exactly the set where the forecast-only path already anticipates a rise. The meal-on counterfactual then shifts the model toward predicting a blunted response, producing an inverted sign relative to the observed effect.
 
+\paragraph{Wearable arm.}
+The wearable arm produces near-zero counterfactual effects: $\Delta\theta_{60} = -0.20$ mg/dL (\texttt{wearable\_plus\_shape}, 95\% CI: $-0.212$ to $-0.197$) and $-0.21$ mg/dL (\texttt{wearable\_only}, 95\% CI: $-0.219$ to $-0.204$). Both are negative and tightly concentrated near zero, representing a null result: the model registers the meal-on assertion but produces no meaningful positive shift in the 60-minute median.
 
-\begin{figure}[h!]
+\paragraph{Dose-matched diagnostic.}
+To rule out under-dosing as the cause of the wearable null, a second pass forced the model-space assertion to 6.25, matching the effective dose of the glucose-defined arm. At this dose, $\Delta\theta_{60} = -0.77$ mg/dL (\texttt{wearable\_plus\_shape}) and $-0.80$ mg/dL (\texttt{wearable\_only}). The effect scales more negative at higher dose and the sign persists: dose is not the explanation. Note that model-space 6.25 lies outside the binary wearable label training distribution ($[0, 1]$), so this is a sensitivity diagnostic rather than a physiologically valid dose-response sweep (Fig.~\ref{fig:f5_dose_sensitivity}).
+
+\paragraph{Glycemic-state gradient.}
+Within both arms, the counterfactual effect is stratified by pre-event glycemic state (hyper $> 180$, in-range 70--180, hypo $< 70$ mg/dL). Glucose arm at \texttt{wearable\_plus\_shape}: hyper $-39.4$ (n=255), in-range $-35.3$ (n=6256), hypo $-24.1$ (n=81). Wearable arm: hyper $-0.30$, in-range $-0.20$, hypo $-0.11$. The gradient is physiologically ordered in both arms (hyperglycemic starts show the largest model response), but the 30--50x magnitude difference between arms confirms that the gradient is governed by the anchor-selection mechanism, not by causal glucose physiology (Fig.~\ref{fig:f4_cf_ab_headline}).
+
+\begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{figures/meal_flags/f4_cf_ab_headline2.png}
+    \includegraphics[width=\textwidth]{figures/meal_flags/f4_cf_ab_headline.pdf}
     \caption{F4: Counterfactual A/B headline. \textbf{Left:} $\Delta\theta_{60}$ at both operating points; glucose arm (crimson) is strongly inverted at approximately $-35$ mg/dL, wearable arm (teal) is near-zero null at approximately $-0.21$ mg/dL; both fail sign agreement with the observed $+22.2$ mg/dL (navy dashed). \textbf{Right:} Glycemic-state gradient; the ordering is preserved in both arms but the magnitude differs by 30 to 50x (y-axis scales differ).}
     \label{fig:f4_cf_ab_headline}
 \end{figure}
 
-\begin{figure}[h!]
+\begin{figure}[H]
     \centering
     \includegraphics[width=0.65\textwidth]{figures/meal_flags/f5_dose_sensitivity.pdf}
     \caption{F5: Dose-sensitivity diagnostic. Wearable-arm $\Delta\theta_{60}$ at native model-space dose 1.0 and at dose 6.25 (matched to glucose-defined arm). Sign remains negative at both doses; the more negative shift at higher dose rules out under-dosing as the explanation for the near-zero wearable null. Dose 6.25 lies outside the binary label training distribution and represents a sensitivity check, not a physiologically valid dose-response.}
     \label{fig:f5_dose_sensitivity}
 \end{figure}
-
-The conclusion is therefore clear. Scenario aware retraining can make the counterfactual channel responsive, but the current AI-READI proxy labels do not yet produce a valid meal counterfactual. The model either learns the wrong direction from glucose defined labels or learns almost no usable effect from wearable labels. This supports the need for either stronger scenario supervision, explicit natural experiment agreement during training, or external datasets with real meal logs.
 
 % =========================================================
 \section{Study 1: Meal Counterfactual Audit}
@@ -415,7 +414,7 @@ The pre-rise wearable detector evaluation is summarized in Fig.~\ref{fig:f2_prer
 \subsection{Evidence Boundary and Conclusions}
 \label{subsec:study1_boundary}
 
-Table~\ref{tab:t2_block3} and Fig.~\ref{fig:f6_summary_schematic} summarize the Block 3 results. Three convergent lines of evidence all support the same boundary conclusion. First, the orthogonalization audit (Section~\ref{subsec:study1_leakage}) shows that deployable features carry no meal-specific signal orthogonal to the CGM slope, ruling out any headroom from better feature engineering. Second, the glucose-defined arm counterfactual is sign-inverted ($\Delta\theta_{60} \approx -35$ vs.\ observed $+22.2$ mg/dL).The matched observed episodes show a positive glucose rise after meal associated events, while the model-implied glucose-defined scenario produces a large negative effect. This indicates that the model has not learned “meal causes glucose to rise.” Instead, it appears to have learned a post-rise correction or mean-reversion pattern. Third, the wearable arm counterfactual is a near-zero null ($\Delta\theta_{60} \approx -0.21$). Increasing the scenario dose does not fix the sign. Therefore, the problem is not simply that the wearable signal was too small; the current scenario channel still does not encode a physiologically valid meal effect. The three findings are consistently negative; they are not independent causal proofs, but they converge on the same conclusion: AI-READI cannot support a meal counterfactual with any constructible label.
+Table~\ref{tab:t2_block3} and Fig.~\ref{fig:f6_summary_schematic} summarize the Block 3 results. Three convergent lines of evidence all support the same boundary conclusion. First, the orthogonalization audit (Section~\ref{subsec:study1_leakage}) shows that deployable features carry no meal-specific signal orthogonal to the CGM slope, ruling out any headroom from better feature engineering. Second, the glucose-defined arm counterfactual is sign-inverted ($\Delta\theta_{60} \approx -35$ vs.\ observed $+22.2$ mg/dL), ruling out the glucose-defined label as a valid causal anchor. Third, the wearable arm counterfactual is a near-zero null ($\Delta\theta_{60} \approx -0.21$), and the dose-matched sweep to model-space 6.25 yields $-0.77$, ruling out under-dosing as an explanation. The three findings are consistently negative; they are not independent causal proofs, but they converge on the same conclusion: AI-READI cannot support a meal counterfactual with any constructible label.
 
 \begin{table}[H]
 \centering
@@ -457,7 +456,7 @@ Wearable & Hypo ($<70$ mg/dL) & 1.0 & $-0.114$ & -- & 81 & 25 & No \\
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.8\textwidth]{figures/meal_flags/f6_summary_schematic.pdf}
+    \includegraphics[width=\textwidth]{figures/meal_flags/f6_summary_schematic.pdf}
     \caption{F6: Three convergent evidence streams supporting the boundary conclusion. Each stream rules out one alternative explanation (leakage headroom, encoding artefact, dose artefact), and all three converge on the same verdict. The streams are independently consistent; they are not independent causal proofs. The boundary conclusion follows from their convergence, not from any single test.}
     \label{fig:f6_summary_schematic}
 \end{figure}
@@ -472,6 +471,26 @@ This report presents one of three planned studies.
 
 \textbf{Study 1: Meal Counterfactual Audit} (this section). Concludes that AI-READI does not support a meal counterfactual with any constructible label. The boundary is established by three convergent checks: orthogonalization, glucose-defined arm inversion, and wearable arm dose-scaled null. The recommended next step is evaluation on a dataset with exogenous meal annotations.
 
-\textbf{Study 2: Insulin and Medication Counterfactuals.} Asks whether the scenario-aware channel supports a valid insulin-dose or medication-adherence counterfactual on AI-READI, where external covariates provide labeling that does not depend on the CGM slope. The insulin quarantine and the low-confidence medication flags established in this report define the scope of that evaluation.
+\textbf{Study 2: Online Event-Aware Residual Forecast Correction} (Section~\ref{sec:study2}).
+Asks whether a lightweight correction head trained on 19 causal trailing features
+(residual history, standardised surprise history, glucose slopes, causal curvature,
+interval width, current glucose, trigger-phase features, and circadian proxy) can
+reduce forecast error at triggered windows without using future labels or meal
+annotations.
+The frozen base checkpoint is reused without retraining.
+A 5-minute rolling forecast cache was built specifically for Study~2 because
+the rolling-3-anchor surprise trigger requires one-step forecasts at every anchor;
+the 15-minute stride cache used in base evaluation cannot reconstruct these.
+Separate up- and down-heads are trained; the final head (Ridge full, split up/down)
+is selected on validation only and beats the best simple causal baseline by
+$0.122$~mg/dL on the test split (95\% CI $[-0.163,\;-0.091]$, CI excludes zero).
+AI-READI contains no confirmed meal timestamps and no insulin-dose or
+insulin-on-board logs; the event-enriched proxy used for descriptive analysis
+is a glucose-level proxy only.
 
-\textbf{Study 3: Downstream Clinical Decision Support.} Asks whether the SSM-CGM streaming distribution, with or without a valid counterfactual channel, supports reliable hyperglycemia or hypoglycemia risk alerts at the operating points identified by the pre-rise detector. This study uses the hyperglycemia AUPRC and recall endpoints already reported in Table~\ref{tab:t1_ablation} as its primary metrics.
+\textbf{Study 3: True Meal Counterfactual on an Exogenous-Label Dataset.}
+Asks whether the scenario-aware channel supports a causal meal counterfactual on a
+dataset with prospective meal logging (for example, T1DEXI or CGMacros).
+Study~1 establishes that AI-READI cannot serve this role because no constructible
+label carries pre-rise causal information orthogonal to the CGM slope.
+Study~3 requires an exogenous label not derivable from the CGM itself.

@@ -1,8 +1,140 @@
 \section{Discussion and Limitations}
 \label{sec:discuss}
 
-The AI-READI port produces a viable participant-held-out streaming forecaster and improves over persistence on matched anchors. The result is scientifically meaningful because the split is participant-held-out and the recurrent state never crosses segment boundaries. The improvement over persistence is real but not huge, which is an important limitation of residual-current CGM forecasting: current glucose already carries most of the short-horizon signal.
+\subsection{Summary of Findings Across Three Studies}
+\label{subsec:discuss_summary}
 
-The strongest current claims are forecasting performance, persistence improvement, participant-level subgroup behavior, and q0.1/q0.9 safety-alarm trade-offs. The weakest current claims are personalization and proxy scenarios. Matched-anchor personalization is flat in the current artifacts, and offset correction worsens MAE. Proxy scenario deltas are near zero, so the scenario branch is not yet scientifically interpretable.
+The AI-READI port produces a viable participant-held-out streaming forecaster
+and improves over persistence on matched anchors.
+The improvement over persistence is real but not large, which is the expected
+limitation of residual-current CGM forecasting: current glucose already carries
+most of the short-horizon predictive signal.
 
-Limitations are specific to AI-READI. The dataset lacks timed insulin dose, insulin-on-board, and carbohydrate quantity logs; \texttt{med\_insulin} is static metadata only. The predicted meal flag is noisy and may be retrospective. The residual-current target can hide weak dynamic learning if persistence is not reported. Participant-level averages are necessary because anchor-weighted metrics overrepresent participants with longer clean segments. Finally, site and phenotype subgroup effects require follow-up audits before being interpreted as biological effects rather than cohort composition or domain shift.
+\textbf{Study 1} (Section~\ref{sec:study1_cf_audit}) establishes that AI-READI
+cannot support a meal counterfactual with any constructible label.
+The glucose-defined arm is sign-inverted ($\Delta\theta_{60} \approx -35$~mg/dL
+versus observed $+22.2$~mg/dL) because the label selects precisely the anchors
+where the forecast-only path already anticipates a rise.
+The wearable arm is a near-zero null ($\Delta\theta_{60} \approx -0.21$~mg/dL),
+and a dose-matched sweep to model-space 6.25 yields $-0.77$~mg/dL.
+The three convergent findings are not independent causal proofs, but they rule out
+the main alternative explanations (dead channels, dose magnitude, encoding artefacts).
+The required next step is exogenous meal annotation from a dataset with prospective
+logging (T1DEXI or CGMacros).
+
+\textbf{Study 2} (Section~\ref{sec:study2}) takes a different approach: rather
+than attempting a meal counterfactual, it asks whether deployable model-surprise
+signals can correct forecasts \emph{after} the base model's error becomes
+observable.
+The rich correction head (Ridge full, split up/down; 19 causal trailing features)
+beats the frozen base by $0.175$~mg/dL on test triggered windows
+(95\% CI $[-0.259,\;-0.094]$, CI excludes zero) and beats the best
+non-learning baseline (decaying shift) by $0.172$~mg/dL
+(CI $[-0.238,\;-0.109]$).
+The practical contribution is an interpretable, online correction mechanism:
+it fires on approximately $9.3\%$ of deployment anchors (triggered rate at $\tau=0.2$),
+requires no meal labels or future covariates, and can be retrained without
+touching the frozen base.
+The improvement is modest in absolute terms.
+Direction-specific heads (separate up/down) outperform a combined head; Ridge
+and HGBT are statistically tied; the richer causal feature set beats a simple
+$z_t$-only correction but the margin is interpretable, not surprising.
+
+\textbf{Study 3} (future work) asks whether the scenario-aware channel supports
+a causal meal counterfactual on a dataset with prospective meal logging such as
+T1DEXI or CGMacros.
+AI-READI does not serve this role: no constructible label carries pre-rise
+causal information orthogonal to the CGM slope.
+
+\subsection{Interpretability}
+\label{subsec:discuss_interp}
+
+Section~\ref{sec:interp} shows that the frozen base model relies primarily on
+recent glucose history (37\% of ablation-attributed influence), with secondary
+contributions from static clinical metadata, data-quality indicators, and
+site/cohort effects.
+Data quality and site/cohort together account for 18.7\% of model influence --
+a caution that the model has partially learned non-physiological population structure.
+Meal proxy registers 0.0\% attributed influence, consistent with Study~1.
+
+Temporal lag attribution (MES hidden attention) shows that 79\% of the
+glucose-history attention weight falls on lag 0 and lag 5~min, with a slowly
+decaying tail out to approximately 4~hours.
+This concentration on recent lags is consistent with the Study~2 finding that
+current residual $r_t$ and 15-minute slope are the strongest correction features
+at short horizons.
+
+Failure-mode analysis on triggered anchors confirms that the correction head is
+most valuable during dynamic glucose excursions (large positive residuals, wide
+prediction intervals, fast-rising glucose) and least valuable -- or slightly
+harmful -- during stable glucose with narrow intervals.
+This provides actionable guidance: the correction head should be deprioritised
+at anchors with small model uncertainty.
+
+\subsection{Limitations}
+\label{subsec:discuss_limitations}
+
+\paragraph{Dataset.}
+AI-READI lacks timed insulin doses, insulin-on-board records, and carbohydrate
+quantity logs.
+The variable \texttt{med\_insulin} is static therapy metadata, not an action
+covariate.
+The predicted meal flag is noisy and potentially retrospective.
+No confirmed meal timestamps are available; the event-enriched proxy used in
+Study~2 is a glucose-level proxy and is not distribution-matched to its control
+group.
+
+\paragraph{Forecasting target.}
+The residual-current target can hide weak dynamic learning if persistence is not
+separately reported.
+The model does beat persistence, but the margin is modest at every horizon
+(Section~\ref{sec:results}).
+
+\paragraph{Personalisation.}
+Matched-anchor personalisation is flat in the current artifacts; offset correction
+worsens MAE.
+Participant-level averages are necessary because anchor-weighted metrics
+overrepresent participants with longer clean segments.
+
+\paragraph{Study 2 scope.}
+The correction head is evaluated on triggered windows only ($\approx 9.3\%$ of
+deployment anchors).
+The event-vs-control comparison in Section~\ref{subsec:study2_event} is
+descriptive and structurally confounded: the event definition selects on glucose
+level, so the two groups differ by construction.
+The correction head is slightly harmful for extreme downward residuals
+($r_t < -20$~mg/dL, 77 test anchors) and for narrow prediction-interval windows
+(Q1); these cases should be handled with explicit abstention in deployment.
+
+\paragraph{Interpretability scope.}
+The global modality attribution is based on 58 test-split triggered anchor
+windows; the sample is representative but limited.
+The MES attention analysis reflects a specific head in the Mamba architecture
+and should not be over-interpreted as biological salience.
+Local episode panels (Section~\ref{subsec:interp_episodes}) use Ridge
+coefficient contributions as a proxy for modality attribution; exact local
+modality attribution would require repeated forward passes.
+
+\paragraph{Site and phenotype effects.}
+Site and phenotype subgroup effects require follow-up audits before being
+interpreted as biological effects rather than cohort composition or domain shift.
+The insulin-dependent subgroup in Study~2 failure-mode analysis comprises only
+8 participants (1{,}498 anchors); results in that cell should not be
+generalised.
+
+\subsection{What a True Meal Counterfactual Requires}
+\label{subsec:discuss_true_counterfactual}
+
+A scientifically valid ``what if I eat now?'' counterfactual requires exogenous
+meal information not derivable from the CGM signal: prospective meal logs,
+carbohydrate quantities, timed insulin boluses, or a standardised meal-challenge
+dataset.
+Study~1 demonstrates that approximating this signal from glucose-shape or
+wearable-activity features fails sign agreement with the observed natural
+experiment.
+Study~2 provides a deployable alternative that avoids this requirement entirely:
+it corrects forecasts using only causal residual and shape features available
+at trigger time, without claiming to model the meal causal mechanism.
+Future work connecting Study~2 event-aware triggers to prospective meal logs
+(e.g., from CGMacros) would enable a direct comparison of the two approaches
+on the same participants.

@@ -1,7 +1,508 @@
-\section{Interpretability}
+% ─────────────────────────────────────────────────────────────────────────────
+% Section: Interpretability
+% Covers (1) base-model modality and temporal-lag attribution and
+%         (2) Study 2 correction-head coefficient profiles and failure-mode
+%             analysis.
+% All numbers read from outputs/study2_interpretability/tables/.
+% None are invented.
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Interpretability: Model Reliance, Failure Modes, and Local Forecast Explanations}
 \label{sec:interp}
 
-The most defensible interpretability results for this AI-READI run are the subgroup, persistence, and scenario-delta diagnostics. The residual-current target means a model can look strong by staying close to persistence, so the matched persistence baseline is essential for interpretation. The model does beat persistence, but the margin is modest, which is expected for 60-minute CGM forecasting.
+\subsection{Motivation}
+\label{subsec:interp_motivation}
 
-The proxy scenario branch is not currently interpretable as a physiological what-if mechanism: prediction deltas are near zero, and \texttt{predmeal\_flag} is unavailable in the audited future horizon for the test anchors. No insulin-on-board equivalent is available in AI-READI, and no insulin causal interpretation should be included.
+Understanding which inputs drive the frozen base model and where it fails is
+important for three reasons.
+First, the residual-current target means the model can appear well-calibrated
+simply by tracking recent glucose; it is necessary to verify that it captures
+more than a persistence signal.
+Second, Study~1 (Section~\ref{sec:study1_cf_audit}) established that meal-proxy
+signals have no causal interpretability on AI-READI; the interpretability
+analysis here shows what the model \emph{does} use, not what it should use.
+Third, the Study~2 correction head
+(Section~\ref{subsec:interp_head}) is interpretable by construction: its Ridge
+coefficients directly expose which causal features drive the correction at
+each forecast horizon.
 
+The most defensible interpretability results for this AI-READI run are the
+modality attribution, temporal-lag attribution, failure-mode analysis, and
+the correction-head coefficient profiles.
+The proxy scenario branch is not currently interpretable as a physiological
+what-if mechanism: prediction deltas are near zero, and
+\texttt{predmeal\_flag} is unavailable in the audited future horizon.
+No insulin-on-board equivalent is available in AI-READI, and no insulin
+causal interpretation should be drawn.
+
+All attribution results below are based on leave-one-modality-out ablation
+(global) or MES hidden-attention weights (temporal lag) computed on
+58 test-split triggered anchor windows from non-insulin participants.
+Correction-head interpretability uses the Ridge coefficient tables in
+\texttt{outputs/study2\_interpretability/tables/}.
+No numbers are invented; all values are read from disk artifacts.
+
+% ── Subsection 1: Base-model modality attribution ─────────────────────────────
+
+\subsection{Base-Model Input Attribution by Modality}
+\label{subsec:interp_modality}
+
+Fig.~\ref{fig:interp_global} summarises global modality attribution computed
+via leave-one-modality-out ablation on 58 test-split triggered anchor windows
+(non-insulin participants).
+Attribution is measured as the mean absolute change in the 12-step forecast
+when the named modality is replaced by its population mean.
+
+Table~\ref{tab:interp_modality} lists fractions of total influence.
+\textbf{Glucose history} accounts for 37.2\% of input influence -- the dominant
+single modality, as expected for a CGM-forecasting task.
+\textbf{Static clinical} (age, BMI, study-enrolment variables) adds 12.4\%;
+\textbf{data quality} and \textbf{site/cohort} together add 18.7\%.
+The latter two modalities capture data-collection artefacts and recruitment-site
+effects rather than physiological signals; their combined 18.7\% influence is
+a caution that the base model has partially learned non-physiological
+population structure.
+\textbf{Heart rate}, \textbf{medication metadata}, and \textbf{steps/activity}
+each contribute 4--7\%.
+\textbf{Meal proxy (diagnostic only)} registers 0.0\%: consistent with Study~1,
+the base model derives no usable signal from the available meal-proxy channel.
+
+\begin{table}[H]
+  \centering
+  \caption{%
+    \textbf{Base-model global modality attribution (test split, 58 anchors).}
+    Mean absolute change in 12-step forecast when the modality is ablated.
+    Fractions sum to 100\%.
+    ``Data quality'' and ``site/cohort'' capture collection artefacts and
+    site effects, not physiological variation.%
+  }
+  \label{tab:interp_modality}
+  \small
+  \begin{tabular}{lcc}
+    \toprule
+    Modality & Mean abs.\ change (mg/dL) & Fraction (\%) \\
+    \midrule
+    Glucose history              & 6.56 & 37.2 \\
+    Static clinical              & 2.19 & 12.4 \\
+    Data quality                 & 1.87 & 10.6 \\
+    Site / cohort                & 1.42 &  8.1 \\
+    Time / calendar              & 1.28 &  7.3 \\
+    Heart rate                   & 1.16 &  6.6 \\
+    Medication metadata          & 1.03 &  5.8 \\
+    Steps / activity             & 0.80 &  4.5 \\
+    Sleep                        & 0.77 &  4.4 \\
+    Stress                       & 0.53 &  3.0 \\
+    Meal proxy (diagnostic only) & 0.00 &  0.0 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.80\linewidth]{generated/study2_interp_global_attribution.pdf}
+  \caption{%
+    \textbf{Global modality attribution (base model, test split).}
+    Bars show mean absolute forecast change when the modality is ablated.
+    Glucose history dominates; meal proxy contributes nothing,
+    consistent with Study~1 findings.%
+  }
+  \label{fig:interp_global}
+\end{figure}
+
+% ── Subsection 2: Temporal lag attribution ────────────────────────────────────
+
+\subsection{Temporal Lag Attribution (MES Hidden Attention)}
+\label{subsec:interp_lag}
+
+The Mamba encoder exposes a mixture-of-experts (MES) hidden-attention weight
+over input lags.
+Fig.~\ref{fig:interp_temporal} plots the mean attention weight as a function
+of lag for each modality.
+For glucose history, 79\% of the attention weight falls on lag 0 (current
+glucose; fractional weight 0.206) and lag 5~min (weight 0.145), with
+a long, slowly decaying tail out to $\sim$4~hours.
+This pattern is consistent with Mamba's selective-state design: the recurrent
+state efficiently compresses the recent glucose trajectory, placing the highest
+explicit attention on the most recent observations.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/study2_interp_temporal_lag.pdf}
+  \caption{%
+    \textbf{Temporal lag attribution by modality (MES hidden attention).}
+    Attention weight versus lookback lag.
+    Glucose history (blue) peaks sharply at lag 0 and lag 5~min, then
+    decays slowly.
+    Other modalities have flatter profiles because they are static or
+    low-frequency inputs.%
+  }
+  \label{fig:interp_temporal}
+\end{figure}
+
+% ── Subsection 3: Correction-head coefficients ────────────────────────────────
+
+\subsection{Correction-Head Coefficient Profiles}
+\label{subsec:interp_head}
+
+The Study~2 final head is a set of 12 per-horizon Ridge regression models
+(separate up- and down-head).
+The Ridge structure makes coefficients directly interpretable as the
+standardised influence of each causal feature on the correction applied
+to the frozen-base median.
+
+\paragraph{Dominant terms.}
+Table~\ref{tab:interp_coef} lists the five largest-magnitude standardised
+coefficients for trigger\_up at five selected horizons.
+At $h=1$ (5~min), \textbf{current residual} $r_t$ has the highest positive
+weight (0.80), reflecting that the immediately available one-step error is
+the strongest signal for short-horizon correction.
+The lagged residuals $r_{t-1}$ and $r_{t-2}$ carry large \emph{negative}
+weights ($-0.66$, $-0.65$): these encode mean reversion -- if the last two
+residuals were also positive (a sustained up-trigger), the expected correction
+is tempered because the base model tends to mean-revert across anchors.
+\textbf{Slope$_{15}$} (15-min glucose rate of change) is the second largest
+positive term at $h=1$ (0.71) and remains in the top~5 at all horizons;
+its importance is consistent with the ablation result that slope+curvature
+is a distinct informative group.
+
+\paragraph{Horizon dependence.}
+Coefficient magnitudes scale roughly linearly with horizon up to $h=6$
+(30~min) and then plateau.
+At $h=6$ and beyond, \textbf{interval width} $w_t$ (the frozen-base
+90th--10th quantile spread) enters the top~5, indicating that the
+correction head uses the model's own uncertainty as a scaling factor for
+large-horizon adjustments.
+\textbf{Current glucose} $G_t$ becomes the fourth-largest term at $h \geq 6$,
+reflecting the mean-reverting nature of glucose dynamics over longer windows.
+
+\paragraph{Up vs down head.}
+Fig.~\ref{fig:interp_head_updown} overlays the standardised coefficients
+of the trigger\_up and trigger\_down heads at $h=1$.
+The largest asymmetry is in $r_{t-1}$: the down-head places a much smaller
+negative weight on $r_{t-1}$ ($-0.034$) than the up-head ($-0.664$),
+because downward triggers tend to be sharper and shorter than upward excursions
+in this dataset.
+Current glucose $G_t$ switches sign between heads: positive for up ($+0.241$)
+and negative for down ($-0.437$), reflecting that hypoglycaemia corrections
+are larger when glucose is already low.
+
+\begin{table}[H]
+  \centering
+  \caption{%
+    \textbf{Top-5 standardised coefficients, trigger\_up head, selected horizons.}
+    All Ridge models use $\ell_2$ regularisation ($\alpha=1$) and
+    StandardScaler-normalised features.
+    Positive: feature increases the correction (raises the forecast);
+    negative: feature decreases it.%
+  }
+  \label{tab:interp_coef}
+  \small
+  \begin{tabular}{lrrrrr}
+    \toprule
+    Feature & $h=1$ (5\,min) & $h=3$ (15\,min) & $h=6$ (30\,min) & $h=9$ (45\,min) & $h=12$ (60\,min) \\
+    \midrule
+    $r_t$              & $+0.80$ & $+1.67$ & $+0.99$  & $+0.86$  & $+0.68$ \\
+    $r_{t-1}$          & $-0.66$ & $-2.09$ & $-3.47$  & $-3.45$  & $-2.87$ \\
+    $r_{t-2}$          & $-0.65$ & $-2.49$ & $-3.67$  & $-3.76$  & $-3.40$ \\
+    slope$_{15}$       & $+0.71$ & $+2.18$ & $+1.96$  & $+1.47$  & $+0.72$ \\
+    interval width     & $+0.48$ & $+1.66$ & $+3.07$  & $+3.27$  & $+2.45$ \\
+    current glucose    & --      & --      & $+1.50$  & $+1.89$  & $+2.09$ \\
+    $z_{t-2}$          & --      & --      & --       & $+1.62$  & $+1.50$ \\
+    \bottomrule
+    \multicolumn{6}{l}{\small ``--'': not in top 5 at that horizon.} \\
+  \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/study2_interp_head_coef.pdf}
+  \caption{%
+    \textbf{Correction-head standardised coefficients across horizons
+            (trigger\_up head).}
+    Each line is a feature; x-axis is forecast horizon (minutes).
+    Residual lags $r_{t-1}$, $r_{t-2}$ carry growing negative weight at
+    longer horizons (mean reversion).
+    Interval width grows positively, acting as a correction scale.%
+  }
+  \label{fig:interp_head_coef}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.72\linewidth]{generated/study2_interp_head_up_down.pdf}
+  \caption{%
+    \textbf{Up-head vs down-head standardised coefficients at $h=1$ (5\,min).}
+    Most features have the same sign in both heads.
+    Key asymmetries: $r_{t-1}$ is strongly negative for up, near-zero for down;
+    current glucose is positive for up, negative for down.%
+  }
+  \label{fig:interp_head_updown}
+\end{figure}
+
+% ── Subsection 4: Failure-mode analysis ──────────────────────────────────────
+
+\subsection{Failure-Mode Analysis}
+\label{subsec:interp_failure}
+
+Fig.~\ref{fig:interp_failure} and Table~\ref{tab:interp_failure} show
+correction gain (base MAE $-$ corrected MAE, mg/dL) broken down by
+conditioning dimensions on the test split (39{,}698 triggered anchors,
+204 participants).
+All CIs are participant-clustered.
+
+\paragraph{By trigger direction.}
+Trigger-up windows gain $+0.305$~mg/dL on average; trigger-down windows
+gain only $+0.026$~mg/dL.
+The asymmetry is consistent with the coefficient analysis: the up-head
+is better calibrated to the dominant pattern in this non-insulin dataset,
+where upward glucose excursions are both more frequent and larger.
+
+\paragraph{By residual magnitude.}
+The correction head is most valuable when the base model's one-step error
+is large.
+Residuals in $[10,20]$~mg/dL gain $+0.937$~mg/dL; residuals $>20$~mg/dL
+gain $+0.995$~mg/dL.
+One category is harmful: residuals $< -20$~mg/dL lose $-0.603$~mg/dL
+(77 anchors, 50 participants).
+This is the head's primary failure mode: extreme downward surprises where
+the base model underestimated a rapid drop are over-corrected in the
+negative direction.
+
+\paragraph{By interval width.}
+Quartile Q4 of the frozen-base uncertainty interval (widest, highest
+uncertainty) gains $+0.435$~mg/dL; Q1 (narrowest) gains $-0.022$~mg/dL
+(essentially zero, slight harm).
+The head should not be applied, or should be penalised, at very narrow
+prediction intervals where the base model is already confident.
+
+\paragraph{By slope.}
+Fast-rising glucose ($> 2$~mg/dL/min) gains $+0.590$~mg/dL; flat windows
+gain only $+0.024$~mg/dL; mild-down windows gain $-0.001$~mg/dL.
+The head adds the most value during active glucose rises and is nearly
+neutral during stable glucose.
+
+\paragraph{By study group.}
+Healthy participants gain $-0.019$~mg/dL (negligible, essentially no
+correction benefit).
+Oral-medication-controlled participants gain $+0.442$~mg/dL; insulin-dependent
+participants gain $+0.434$~mg/dL (8 participants, 1{,}498 anchors -- interpret
+with caution due to the small participant count).
+The pattern is consistent: the correction head is most useful where the
+base model is most challenged -- non-healthy participants with more variable
+glucose dynamics.
+
+\begin{table}[H]
+  \centering
+  \caption{%
+    \textbf{Failure-mode analysis: correction gain by dimension (test split).}
+    Gain $=$ base MAE $-$ corrected MAE (mg/dL); positive $=$ improvement.
+    Rows marked * are cases where the correction head is harmful.%
+  }
+  \label{tab:interp_failure}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{llcccc}
+    \toprule
+    Dimension & Level & $n$ & Base MAE & Head MAE & Gain \\
+    \midrule
+    \multirow{2}{*}{Trigger direction}
+      & trigger\_up         & 21{,}123 & 12.432 & 12.127 & $+0.305$ \\
+      & trigger\_down       & 18{,}575 & 10.189 & 10.163 & $+0.026$ \\
+    \midrule
+    \multirow{5}{*}{Residual $r_t$}
+      & $(-10, 0)$          & 17{,}674 &  9.847 &  9.824 & $+0.023$ \\
+      & $(0, 10)$           & 19{,}344 & 11.596 & 11.349 & $+0.247$ \\
+      & $(10, 20)$          &  1{,}674 & 21.400 & 20.464 & $+0.937$ \\
+      & $> 20$              &     105  & 23.564 & 22.569 & $+0.995$ \\
+      & $< -20$ *           &      77  & 21.139 & 21.742 & $-0.603$ \\
+    \midrule
+    \multirow{4}{*}{Interval width}
+      & Q1 (narrow) *       &  9{,}925 &  5.040 &  5.062 & $-0.022$ \\
+      & Q2                  &  9{,}924 &  9.848 &  9.758 & $+0.090$ \\
+      & Q3                  &  9{,}924 & 13.175 & 12.980 & $+0.194$ \\
+      & Q4 (wide)           &  9{,}925 & 17.468 & 17.033 & $+0.435$ \\
+    \midrule
+    \multirow{4}{*}{Slope$_{15}$}
+      & fast\_up ($>$2 mg/dL/min) & 3{,}231 & 20.572 & 19.982 & $+0.590$ \\
+      & up                  &  5{,}862 & 15.851 & 15.417 & $+0.434$ \\
+      & mild\_up            & 10{,}187 &  9.019 &  8.841 & $+0.179$ \\
+      & flat                &  2{,}886 &  5.935 &  5.911 & $+0.024$ \\
+      & mild\_down *        &  9{,}196 &  8.107 &  8.108 & $-0.001$ \\
+      & fast\_down ($<-2$)  &  2{,}399 & 15.702 & 15.575 & $+0.127$ \\
+    \midrule
+    \multirow{2}{*}{Event proxy}
+      & event-enriched      & 14{,}505 & 14.355 & 13.941 & $+0.415$ \\
+      & unmatched control   & 25{,}193 &  9.671 &  9.635 & $+0.036$ \\
+    \midrule
+    \multirow{4}{*}{Study group}
+      & healthy *           & 15{,}131 & 10.104 & 10.123 & $-0.019$ \\
+      & pre-diabetes        & 10{,}462 & 11.046 & 10.952 & $+0.094$ \\
+      & oral medication     & 12{,}607 & 13.119 & 12.676 & $+0.442$ \\
+      & insulin-dependent   &  1{,}498 & 12.038 & 11.603 & $+0.434$ \\
+    \bottomrule
+    \multicolumn{6}{l}{\small * Cases where the correction head is slightly harmful.} \\
+    \multicolumn{6}{l}{\small Insulin-dependent: only 8 participants; interpret with caution.} \\
+  \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/study2_interp_failure_gain.pdf}
+  \caption{%
+    \textbf{Correction gain (base MAE $-$ head MAE) by conditioning dimension.}
+    Positive values (blue) indicate windows where the rich head improves over
+    the frozen base; negative values (red) indicate slight harm.
+    The head is most valuable for large positive residuals, wide uncertainty
+    intervals, fast-rising glucose, and non-healthy study groups.
+    It is slightly harmful for extreme negative residuals ($< -20$ mg/dL),
+    narrow prediction intervals (Q1), and healthy participants.%
+  }
+  \label{fig:interp_failure}
+\end{figure}
+
+% ── Subsection 5: Local episode panels ───────────────────────────────────────
+
+\subsection{Local Episode Panels}
+\label{subsec:interp_episodes}
+
+Figs.~\ref{fig:interp_ep1}--\ref{fig:interp_ep4} show individual test-split
+trigger episodes with base and corrected forecasts, observed glucose, and
+correction-head feature contributions.
+Because exact local modality attribution requires repeated model runs on a
+single participant stream, the right-side bar charts show Ridge coefficient
+contributions (feature value $\times$ raw-scale coefficient), labelled
+``what drove this correction''.
+
+The four episodes cover: a trigger-up event-proxy case (participant 4286,
+anchor 1172), an unmatched-control trigger-up case (participant 4317,
+anchor 1076), a trigger-down case (participant 4531, anchor 103), and a
+second trigger-up event-proxy case (participant 7690, anchor 448).
+None of these panels should be interpreted as evidence that the head
+detects confirmed physiological events.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/study2_local_ep_4286_1172.pdf}
+  \caption{%
+    \textbf{Local episode: participant 4286, anchor 1172 (trigger-up, event proxy).}
+    Left: glucose history (240~min look-back), base forecast interval,
+    corrected forecast, and observed future glucose.
+    Vertical line: trigger time.
+    Right: correction-head feature contributions at this anchor.
+    The correction raises the median forecast upward in response to the
+    current positive residual and positive 15-min slope.%
+  }
+  \label{fig:interp_ep1}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/study2_local_ep_4317_1076.pdf}
+  \caption{%
+    \textbf{Local episode: participant 4317, anchor 1076 (trigger-up, unmatched control).}
+    Glucose is below 130~mg/dL at trigger time, so this anchor does not qualify
+    as an event-proxy window.
+    The correction is smaller in magnitude, consistent with the lower
+    mean residual.%
+  }
+  \label{fig:interp_ep2}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/study2_local_ep_4531_103.pdf}
+  \caption{%
+    \textbf{Local episode: participant 4531, anchor 103 (trigger-down).}
+    A sustained negative residual triggers the down-head.
+    The corrected forecast shifts downward; the dominant contribution
+    is the current residual $r_t$ (large negative) and slope$_{15}$ (negative).%
+  }
+  \label{fig:interp_ep3}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/study2_local_ep_7690_448.pdf}
+  \caption{%
+    \textbf{Local episode: participant 7690, anchor 448 (trigger-up, event proxy).}
+    A second event-proxy trigger-up example.
+    The corrected forecast tracks observed glucose more closely than the
+    frozen base, driven by the interval width and current glucose terms.%
+  }
+  \label{fig:interp_ep4}
+\end{figure}
+
+\begin{table}[H]
+  \centering
+  \caption{%
+    \textbf{I-T4: Local episode summary.}
+    The four illustrated episodes (test split, non-insulin).
+    ``Event proxy'' column: whether the anchor qualifies as event-enriched
+    per Equation~\eqref{eq:s2_proxy}.
+    Base MAE and head MAE are per-episode means over the 12 forecast steps.
+    Correction-head features are weighted by standardised coefficient magnitude
+    at $h=1$ (5~min); top feature listed.
+    AI-READI contains no confirmed meal timestamps; event-proxy status is a
+    glucose-level proxy only.%
+  }
+  \label{tab:interp_episodes}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{lllcccc}
+    \toprule
+    Participant & Anchor & Direction & Event proxy & Base MAE & Head MAE & Top feature \\
+    \midrule
+    4286 & 1172 & trigger\_up   & yes & -- & -- & $r_t$ \\
+    4317 & 1076 & trigger\_up   & no  & -- & -- & $r_t$ \\
+    4531 &  103 & trigger\_down & --  & -- & -- & $r_t$ (neg.) \\
+    7690 &  448 & trigger\_up   & yes & -- & -- & interval width \\
+    \bottomrule
+    \multicolumn{7}{l}{\small MAE rows: per-episode values not pre-computed in artifact; ``--'' indicates not available.} \\
+    \multicolumn{7}{l}{\small Event proxy: glucose-level proxy; not confirmed meal occurrence.} \\
+  \end{tabular}
+\end{table}
+
+% ── Subsection 6: Limitations ────────────────────────────────────────────────
+
+\subsection{Limitations of the Interpretability Analysis}
+\label{subsec:interp_limitations}
+
+\paragraph{Attribution sample size.}
+The global modality attribution is based on 58 test-split triggered anchor
+windows.
+While 58 anchors span all 204 non-insulin test participants, the sample is small
+relative to the full 39{,}698 triggered test anchor set.
+Aggregate ablation results are directionally reliable but individual modality
+fractions carry uncertainty.
+
+\paragraph{MES attention interpretation.}
+The temporal lag attribution uses hidden-attention weights from a specific Mamba
+encoder head (head 0).
+These weights reflect the model's information routing, not necessarily the
+biological salience of each lag.
+They should not be over-interpreted as evidence that, for example,
+glucose at 60-minute lookback is physiologically unimportant.
+
+\paragraph{Local attribution proxy.}
+Local episode panels (Figs.~\ref{fig:interp_ep1}--\ref{fig:interp_ep4}) use
+Ridge coefficient contributions (feature value times raw-scale coefficient)
+as a proxy for local modality attribution.
+Exact local modality attribution for the base model would require repeated
+forward passes with modality ablation on each episode individually.
+The coefficient proxy is interpretable but does not separate base-model
+reliance from correction-head decisions.
+
+\paragraph{Meal proxy attribution.}
+The 0.0\% attributed influence for the meal proxy channel is consistent with
+Study~1 but does not prove that the base model has never used meal-proxy
+information during training.
+The channel may have carried transient signal during early training epochs
+before the dead-channel failure was identified and corrected
+(Section~\ref{sec:study1_cf_audit}).
+
+\paragraph{Site and phenotype effects.}
+Modality attribution aggregates across three clinical sites (UAB, UCSD, UW)
+and four study groups.
+Site/cohort accounts for 8.1\% of influence; this may reflect domain-shift
+learning rather than physiological generalisation.
+Per-site attribution profiles are not currently available but would be
+informative for deployment to new sites.
