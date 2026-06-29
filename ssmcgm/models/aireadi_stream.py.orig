@@ -41,7 +41,6 @@ class AireadiStreamModelConfig:
     hr_exercise_g_floor_mgdl: float = 105.0
     hr_exercise_bout_median_min: int = 30
     hr_exercise_rise_to_peak_min: int = 12
-    route_future_hr_via_exercise_head: bool = True
     hr_exercise_decay_min: int = 45
     horizon_emb_dim: int = 16
     decoder_hidden_size: Optional[int] = None

@@ -1,0 +1,300 @@
+"""Path B Step 1 wiring checks.
+
+Loads the frozen checkpoint without training. Verifies default-off compatibility,
+the explicit y_base anchor contract, HR-only routing, and batch versus stream
+buffer equivalence with the structured exercise head enabled.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from dataclasses import replace
+from pathlib import Path
+
+import torch
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from ssmcgm.data.aireadi import AireadiFeatureSpec, AireadiPreprocessor
+from ssmcgm.models.aireadi_stream import (
+    AireadiStreamModel,
+    AireadiStreamModelConfig,
+)
+
+
+INIT_CKPT = (
+    ROOT
+    / "outputs/aireadi_stream_mamba_stateful_5epoch/checkpoints"
+    / "best_model_checkpoint.pt"
+)
+OUTPUT_DIR = ROOT / "outputs/study2_exercise_path_b"
+CHECKS_PATH = OUTPUT_DIR / "step1_wiring_checks.json"
+ATOL = 2e-5
+BUFFER_ATOL = 5e-4
+SEED = 0
+
+
+def max_abs(left: torch.Tensor, right: torch.Tensor) -> float:
+    return float((left - right).abs().max().detach().cpu())
+
+
+def assert_close(name: str, left: torch.Tensor, right: torch.Tensor, tolerance: float = ATOL) -> float:
+    difference = max_abs(left, right)
+    if difference > tolerance:
+        raise AssertionError(
+            f"{name} failed: max absolute difference {difference:.8g} > {tolerance:.8g}"
+        )
+    return difference
+
+
+def main() -> None:
+    torch.manual_seed(SEED)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    checkpoint = torch.load(INIT_CKPT, map_location="cpu")
+    metadata = checkpoint["metadata"]
+    state_dict = checkpoint["model_state_dict"]
+    spec = AireadiFeatureSpec(**metadata["feature_spec"])
+    preprocessor = AireadiPreprocessor.from_jsonable(metadata["preprocessor"])
+    base_config = AireadiStreamModelConfig(**metadata["model_config"])
+
+    model_off = AireadiStreamModel(spec, preprocessor, base_config)
+    model_off.load_state_dict(state_dict, strict=True)
+    off_state = model_off.state_dict()
+    if set(off_state) != set(state_dict):
+        raise AssertionError("Default-off model state_dict keys changed")
+    max_loaded_tensor_difference = max(
+        max_abs(off_state[name], state_dict[name]) for name in state_dict
+    )
+
+    head_config = replace(base_config, hr_exercise=True)
+    model = AireadiStreamModel(spec, preprocessor, head_config)
+    incompatible = model.load_state_dict(state_dict, strict=False)
+    expected_missing = ["exercise_head.a_dir"]
+    if sorted(incompatible.missing_keys) != expected_missing:
+        raise AssertionError(
+            f"Unexpected missing keys: {incompatible.missing_keys}"
+        )
+    if incompatible.unexpected_keys:
+        raise AssertionError(
+            f"Unexpected checkpoint keys: {incompatible.unexpected_keys}"
+        )
+    model.eval()
+
+    batch = 2
+    history = 32
+    horizon = spec.horizon_steps
+    static_cat = torch.zeros(
+        batch, len(spec.static_categoricals), dtype=torch.long
+    )
+    static_cont = torch.zeros(batch, len(spec.static_reals))
+    dynamic = torch.randn(batch, history, len(spec.dynamic_reals)) * 0.1
+
+    with torch.no_grad():
+        static_context = model.encode_static(static_cat, static_cont)
+        batch_state = model.init_stream(static_context)
+        batch_state, batch_outputs = model.scan_chunk(
+            dynamic, static_context, batch_state
+        )
+
+        stream_state = model.init_stream(static_context)
+        for step in range(history):
+            stream_state = model.update_stream(
+                stream_state, dynamic[:, step]
+            )
+
+        state_difference = assert_close(
+            "batch versus stream last_output",
+            batch_outputs[:, -1],
+            stream_state.last_output,
+        )
+        batch_last_output_difference = assert_close(
+            "scan state last_output",
+            batch_state.last_output,
+            batch_outputs[:, -1],
+        )
+        layer_buffer_differences = [
+            assert_close(
+                f"layer state buffer {index}",
+                batch_buffer,
+                stream_buffer,
+                BUFFER_ATOL,
+            )
+            for index, (batch_buffer, stream_buffer) in enumerate(
+                zip(batch_state.layer_states, stream_state.layer_states)
+            )
+        ]
+        conv_buffer_differences = [
+            assert_close(
+                f"convolution state buffer {index}",
+                batch_buffer,
+                stream_buffer,
+                BUFFER_ATOL,
+            )
+            for index, (batch_buffer, stream_buffer) in enumerate(
+                zip(batch_state.conv_states, stream_state.conv_states)
+            )
+        ]
+        if batch_state.step != stream_state.step:
+            raise AssertionError(
+                f"Stream step mismatch: {batch_state.step} != {stream_state.step}"
+            )
+        recurrent_buffer_difference = max(
+            layer_buffer_differences + conv_buffer_differences + [0.0]
+        )
+
+        future_time = torch.randn(batch, horizon, len(spec.time_reals)) * 0.1
+        future_scenario = (
+            torch.randn(batch, horizon, len(spec.scenario_reals)) * 0.1
+        )
+        future_mask = torch.ones_like(future_scenario)
+        future_hr_delta = model.exercise_head._reference_hr_delta(
+            horizon
+        ).unsqueeze(0).expand(batch, -1)
+        current_glucose = torch.tensor([90.0, 160.0])
+
+        batch_prediction = model.decode_horizon(
+            batch_outputs[:, -1],
+            static_context,
+            future_time,
+            future_scenario,
+            future_mask,
+            current_glucose_mgdl=current_glucose,
+            future_hr_delta_bpm=future_hr_delta,
+        )
+        stream_prediction = model.decode_horizon(
+            stream_state.last_output,
+            static_context,
+            future_time,
+            future_scenario,
+            future_mask,
+            current_glucose_mgdl=current_glucose,
+            future_hr_delta_bpm=future_hr_delta,
+        )
+        prediction_difference = assert_close(
+            "batch versus stream prediction",
+            batch_prediction,
+            stream_prediction,
+        )
+
+        hr_index = spec.scenario_reals.index("heart_rate_mean")
+        perturbed_scenario = future_scenario.clone()
+        perturbed_scenario[..., hr_index] += 5.0
+        routed_prediction = model.decode_horizon(
+            batch_outputs[:, -1],
+            static_context,
+            future_time,
+            perturbed_scenario,
+            future_mask,
+            current_glucose_mgdl=current_glucose,
+            future_hr_delta_bpm=future_hr_delta,
+        )
+        hr_routing_difference = assert_close(
+            "future HR routed through head only",
+            batch_prediction,
+            routed_prediction,
+        )
+
+        zero_base = torch.zeros(
+            batch, horizon, len(base_config.quantiles)
+        )
+        static_final, static_effect, static_components = model.exercise_head(
+            zero_base,
+            current_glucose,
+            future_hr_delta,
+        )
+        if not bool(torch.all(static_effect[0] == 0)):
+            raise AssertionError("Low-g0 safety gate is not exactly zero")
+        expected_static_ramp = torch.full(
+            (horizon,), 160.0 - head_config.hr_exercise_g_floor_mgdl
+        )
+        assert_close(
+            "static reference R",
+            static_components["ramp"][1],
+            expected_static_ramp,
+        )
+        static_reference_drop = float(
+            -static_effect[1].min().detach().cpu()
+        )
+        if abs(static_reference_drop - head_config.hr_exercise_gain_target * 55.0) > ATOL:
+            raise AssertionError("Static reference drop does not reproduce the imposed anchor")
+
+        drifting_base = zero_base.clone()
+        median_index = model.exercise_head.median_index
+        drift = torch.linspace(0.0, 10.0, horizon)
+        drifting_base[1, :, median_index] = drift
+        _, _, drifting_components = model.exercise_head(
+            drifting_base,
+            current_glucose,
+            future_hr_delta,
+        )
+        expected_drifting_ramp = expected_static_ramp + drift
+        drift_r_difference = assert_close(
+            "realized R follows y_base drift",
+            drifting_components["ramp"][1],
+            expected_drifting_ramp,
+        )
+
+    trainable = model.configure_exercise_head_training()
+    if trainable != ["exercise_head.a_dir"]:
+        raise AssertionError(f"Unexpected trainable parameters: {trainable}")
+
+    checks = {
+        "framing": (
+            "Magnitude is imposed from a descriptive-in-cohort associational "
+            "prior. AI-READI supplies timing, shape, and glucose-state gating."
+        ),
+        "default_off_strict_load": True,
+        "default_off_state_dict_key_count": len(state_dict),
+        "max_loaded_tensor_difference": max_loaded_tensor_difference,
+        "head_on_expected_missing_keys": expected_missing,
+        "head_on_unexpected_keys": list(incompatible.unexpected_keys),
+        "trainable_parameters": trainable,
+        "r_evaluation_contract": (
+            "y_base(h) = current_glucose + scenario-zero base median residual(h); "
+            "R(h) = relu(y_base(h) - 105)"
+        ),
+        "static_reference_r_mgdl": 55.0,
+        "static_reference_drop_mgdl": static_reference_drop,
+        "realized_r_tracks_base_drift_max_difference": drift_r_difference,
+        "batch_stream_state_max_difference": state_difference,
+        "batch_scan_last_output_max_difference": batch_last_output_difference,
+        "batch_stream_recurrent_buffer_max_difference": recurrent_buffer_difference,
+        "batch_stream_step_equal": batch_state.step == stream_state.step,
+        "batch_stream_prediction_max_difference": prediction_difference,
+        "future_hr_decoder_leakage_max_difference": hr_routing_difference,
+        "exercise_reference_norm_bpm": float(
+            model.exercise_head.reference_norm.detach().cpu()
+        ),
+        "tolerance": ATOL,
+        "recurrent_buffer_tolerance": BUFFER_ATOL,
+    }
+    CHECKS_PATH.write_text(json.dumps(checks, indent=2) + "\n")
+
+    print("=" * 72)
+    print("PATH B EXERCISE SENSITIVITY HEAD, STEP 1 CHECKS")
+    print("=" * 72)
+    print("Magnitude status: IMPOSED, not estimated from AI-READI.")
+    print("Output status: structurally imposed planning response, not a causal estimate.")
+    print("Default-off frozen checkpoint strict load: PASS")
+    print(f"Head-on missing keys: {expected_missing}")
+    print(f"Trainable parameters: {trainable}")
+    print(
+        "R contract: current glucose plus scenario-zero base median residual, "
+        "evaluated at every horizon."
+    )
+    print(f"Static reference R: 55 mg/dL, imposed peak drop: {static_reference_drop:.6f} mg/dL")
+    print(f"Batch versus stream state max difference: {state_difference:.3g}")
+    print(f"Batch versus stream prediction max difference: {prediction_difference:.3g}")
+    print(f"Batch versus stream recurrent buffer max difference: {recurrent_buffer_difference:.3g}")
+    print(f"Future HR decoder leakage max difference: {hr_routing_difference:.3g}")
+    print(f"Checks saved: {CHECKS_PATH}")
+    print()
+    print("PAUSE: head wired, load + equivalence checks passed. Confirm before training.")
+
+
+if __name__ == "__main__":
+    main()

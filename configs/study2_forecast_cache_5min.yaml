@@ -1,0 +1,54 @@
+name: Study2-ForecastCache-5min
+
+# Study 2 Block A/B cache-generation config.
+# anchor_stride_minutes = 5 → anchor_stride_steps = 1 (every 5-minute bin is an anchor).
+# Only forecast_only mode is evaluated; no proxy modes, no future labels.
+
+data:
+  panel_path: /home/myriamcharfeddine/CGM/Data/enriched_multimodal/final_multimodal_dataset_20260515_184339.parquet
+  static_path: /home/myriamcharfeddine/CGM/Data/enriched_multimodal/participant_static_features.parquet
+  cohort_path: /home/myriamcharfeddine/CGM/Data/enriched_multimodal/cohort.csv
+  schema: {}
+
+dataset:
+  bin_minutes: 5
+  horizon_steps: 12
+  target_transform: residual_current
+  streaming_unit: participant_id_plus_segment_id
+  clean_min_segment_hours: 49
+
+split:
+  mode: participant_heldout
+  existing_split_path: /home/myriamcharfeddine/CGM/Data/experiment_c_split_adapt6h_seed42/split_participants.csv
+  train: 0.70
+  val: 0.15
+  test: 0.15
+  seed: 42
+  stratify_col: participants_study_group
+
+evaluation:
+  anchor_stride_minutes: 5
+  anchor_stride_steps: 1
+  modes:
+    - forecast_only
+  personalization_warmup_hours: [0, 6, 12, 24, 48]
+  subgroup_columns:
+    - participants_study_group
+    - hba1c_percent_baseline
+    - bmi_baseline
+    - participants_clinical_site
+    - med_insulin
+    - med_any_diabetes_drug
+
+output:
+  base_dir: /home/myriamcharfeddine/CGM/SSM-CGM/outputs/study2_forecast_cache_5min
+
+# Frozen base checkpoint - do not train; load weights only.
+base_checkpoint: /home/myriamcharfeddine/CGM/SSM-CGM/outputs/aireadi_stream_mamba_stateful_5epoch/checkpoints/best_model_checkpoint.pt
+base_model_frozen: true
+
+smoke:
+  participants: 6
+  eval_participants: 3
+  max_anchors_per_stream: 4
+  epochs: 1

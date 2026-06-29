@@ -1,0 +1,342 @@
+"""
+Path B exercise sensitivity head, Step 0 only.
+
+This script exports the numeric descriptive exercise kernel and grounds the
+imposed exercise magnitude. It does not load a model, call a detector, or train.
+The magnitude is imposed from an AI-READI descriptive, associational kernel.
+AI-READI supplies timing, shape, and glucose-state gating only.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pyarrow.parquet as pq
+
+
+# ============================================================
+# NAMED CONFIGURATION
+# ============================================================
+INIT_CKPT = "outputs/aireadi_stream_mamba_stateful_5epoch/checkpoints/best_model_checkpoint.pt"
+HR_DEADZONE_BPM = 15.0
+HR_LAG_SUPPORT_MIN = 60
+G_FLOOR = 105.0
+RESTING_HR_SOURCE = "stable_floor"
+HR_INTENSITY_DEF = "relu(HR - resting_hr)"
+INTENSITY_TEMPLATE = {"light": 32.0, "moderate": 39.0, "vigorous": 50.0}
+BOUT_MEDIAN_MIN = 30
+RISE_TO_PEAK_MIN = 12
+DECAY_MIN = 45
+USE_RANK_LOSS = False
+SCENARIO_DECOMPOSE = True
+ROUTE_FUTURE_HR_VIA_HEAD = True
+LAMBDA_EX_PRIOR = 0.2
+MAX_EPOCHS = 20
+MAE_TOLERANCE = 0.3
+SUBGROUP = "non_insulin"
+SEED = 0
+
+# Option (b) from the specification. This is the primary non-insulin,
+# moderate-strain, onset-aligned descriptive result reported by
+# notebooks/stage2_residual_diagnostic.ipynb, cell 24. It is associational.
+DESCRIPTIVE_ANCHOR_MGDL = 16.7
+DESCRIPTIVE_ANCHOR_NADIR_MIN = 28
+TARGET_REFERENCE_G0_MGDL = 160.0
+HR_INTENSITY_NORM_BPM = INTENSITY_TEMPLATE["moderate"] - HR_DEADZONE_BPM
+
+# With a unit-sum lag kernel and sustained moderate dHR, A is normalized to 1.
+# At the elevated reference glucose, R = 160 - 105 = 55 mg/dL.
+# S is dimensionless because Delta_y = -A * R * S.
+EXERCISE_G_TARGET = (
+    DESCRIPTIVE_ANCHOR_MGDL
+    / (TARGET_REFERENCE_G0_MGDL - G_FLOOR)
+)
+
+ROOT = Path(__file__).resolve().parents[1]
+OUTPUT_DIR = ROOT / "outputs/study2_exercise_path_b"
+DESCRIPTIVE_KERNEL = OUTPUT_DIR / "descriptive_associational_kernel.csv"
+STEP0_MANIFEST = OUTPUT_DIR / "step0_imposed_magnitude.json"
+
+EPISODE_PATH = (
+    ROOT
+    / "notebooks/outputs/exercise_episode_detection_v2"
+    / "exercise_episodes_features.parquet"
+)
+COVERED_EPISODE_PATH = (
+    ROOT / "outputs/stage2_residual_diagnostic/residual_per_episode.parquet"
+)
+PANEL_PATH = (
+    ROOT.parent
+    / "Data/enriched_multimodal/final_multimodal_dataset_20260515_184339.parquet"
+)
+
+OFFSETS_MIN = np.arange(-60, 181, 5, dtype=np.int64)
+MIN_FINITE_POINTS = 12
+STRAIN_ORDER = ("light", "moderate", "vigorous")
+
+
+def check_inputs() -> None:
+    missing = [
+        str(path)
+        for path in (EPISODE_PATH, COVERED_EPISODE_PATH, PANEL_PATH)
+        if not path.exists()
+    ]
+    if missing:
+        sys.exit("ERROR: missing required saved artifact(s):\n" + "\n".join(missing))
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def timestamps_ns(values: pd.Series) -> np.ndarray:
+    idx = pd.DatetimeIndex(pd.to_datetime(values))
+    if idx.tz is not None:
+        idx = idx.tz_convert("UTC").tz_localize(None)
+    return idx.to_numpy(dtype="datetime64[ns]").astype(np.int64)
+
+
+def load_primary_covered_episodes() -> pd.DataFrame:
+    episodes = pd.read_parquet(EPISODE_PATH).reset_index(drop=True)
+    episodes["episode_id"] = np.arange(len(episodes), dtype=np.int64)
+    episodes["participant_id"] = episodes["participant_id"].astype(str)
+
+    covered = pd.read_parquet(
+        COVERED_EPISODE_PATH,
+        columns=["episode_id", "participant_id", "strain_class"],
+    )
+    covered["participant_id"] = covered["participant_id"].astype(str)
+    covered_ids = set(covered["episode_id"].astype(int))
+    selected = episodes[episodes["episode_id"].isin(covered_ids)].copy()
+
+    for column in ("refined_start_time", "start_time"):
+        selected[column] = pd.to_datetime(selected[column])
+    selected["onset_time"] = selected["refined_start_time"].fillna(
+        selected["start_time"]
+    )
+
+    expected = len(covered_ids)
+    if len(selected) != expected:
+        raise RuntimeError(
+            f"Episode identity mismatch: expected {expected}, recovered {len(selected)}."
+        )
+    return selected
+
+
+def build_glucose_arrays(
+    participant_ids: list[str],
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    table = pq.read_table(
+        PANEL_PATH,
+        columns=["participant_id", "timestamp_local", "cgm_glucose_mean"],
+        filters=[("participant_id", "in", participant_ids)],
+    )
+    panel = table.to_pandas()
+    panel["participant_id"] = panel["participant_id"].astype(str)
+    panel["timestamp_local"] = pd.to_datetime(panel["timestamp_local"])
+    panel.sort_values(["participant_id", "timestamp_local"], inplace=True)
+
+    arrays: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for pid, group in panel.groupby("participant_id", sort=False):
+        arrays[str(pid)] = (
+            timestamps_ns(group["timestamp_local"]),
+            group["cgm_glucose_mean"].to_numpy(dtype=float),
+        )
+    return arrays
+
+
+def extract_curves(
+    episodes: pd.DataFrame,
+    arrays: dict[str, tuple[np.ndarray, np.ndarray]],
+) -> pd.DataFrame:
+    rows: list[dict] = []
+    offset_ns = OFFSETS_MIN * 60 * 1_000_000_000
+
+    for episode in episodes.itertuples(index=False):
+        pid = str(episode.participant_id)
+        if pid not in arrays or pd.isna(episode.onset_time):
+            continue
+        timestamps, glucose = arrays[pid]
+        onset_ns = timestamps_ns(pd.Series([episode.onset_time]))[0]
+        query = onset_ns + offset_ns
+        positions = np.searchsorted(timestamps, query)
+        valid = positions < len(timestamps)
+        exact = valid & (
+            timestamps[np.minimum(positions, len(timestamps) - 1)] == query
+        )
+        curve = np.full(len(OFFSETS_MIN), np.nan, dtype=float)
+        curve[exact] = glucose[positions[exact]]
+        if int(np.isfinite(curve).sum()) < MIN_FINITE_POINTS:
+            continue
+
+        pre = curve[OFFSETS_MIN < 0]
+        post = curve[(OFFSETS_MIN >= 0) & (OFFSETS_MIN <= 60)]
+        if int(np.isfinite(pre).sum()) == 0 or int(np.isfinite(post).sum()) < 3:
+            baseline = np.nan
+            nadir_drop = np.nan
+            nadir_min = np.nan
+        else:
+            baseline = float(np.nanmean(pre))
+            nadir_index = int(np.nanargmin(post))
+            nadir_drop = baseline - float(post[nadir_index])
+            nadir_min = float(OFFSETS_MIN[(OFFSETS_MIN >= 0) & (OFFSETS_MIN <= 60)][nadir_index])
+
+        for offset, value in zip(OFFSETS_MIN, curve):
+            rows.append(
+                {
+                    "episode_id": int(episode.episode_id),
+                    "participant_id": pid,
+                    "strain_class": str(episode.strain_class),
+                    "offset_min": int(offset),
+                    "glucose_mgdl": float(value) if np.isfinite(value) else np.nan,
+                    "pre_onset_baseline_mgdl": baseline,
+                    "nadir_drop_mgdl": nadir_drop,
+                    "time_to_nadir_min": nadir_min,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def summarize_kernel(curves: pd.DataFrame) -> pd.DataFrame:
+    episode_metrics = curves[
+        [
+            "episode_id",
+            "strain_class",
+            "pre_onset_baseline_mgdl",
+            "nadir_drop_mgdl",
+            "time_to_nadir_min",
+        ]
+    ].drop_duplicates("episode_id")
+
+    trajectory = (
+        curves.groupby(["strain_class", "offset_min"], as_index=False)
+        .agg(
+            n_glucose=("glucose_mgdl", "count"),
+            mean_glucose_mgdl=("glucose_mgdl", "mean"),
+            sd_glucose_mgdl=("glucose_mgdl", "std"),
+        )
+    )
+    trajectory["sem_glucose_mgdl"] = (
+        trajectory["sd_glucose_mgdl"]
+        / np.sqrt(trajectory["n_glucose"].clip(lower=1))
+    )
+
+    metrics = (
+        episode_metrics.groupby("strain_class", as_index=False)
+        .agg(
+            n_episodes=("episode_id", "nunique"),
+            mean_pre_onset_baseline_mgdl=("pre_onset_baseline_mgdl", "mean"),
+            mean_nadir_drop_mgdl=("nadir_drop_mgdl", "mean"),
+            mean_time_to_nadir_min=("time_to_nadir_min", "mean"),
+        )
+    )
+    return trajectory.merge(metrics, on="strain_class", how="left")
+
+
+def inverse_softplus(value: float) -> float:
+    return math.log(math.expm1(value))
+
+
+def main() -> None:
+    check_inputs()
+    episodes = load_primary_covered_episodes()
+    arrays = build_glucose_arrays(sorted(episodes["participant_id"].unique()))
+    curves = extract_curves(episodes, arrays)
+    kernel = summarize_kernel(curves)
+    kernel.to_csv(DESCRIPTIVE_KERNEL, index=False)
+
+    moderate = (
+        kernel[kernel["strain_class"].eq("moderate")]
+        .iloc[0]
+    )
+    reproduced_drop = float(moderate["mean_nadir_drop_mgdl"])
+    reproduced_nadir = float(moderate["mean_time_to_nadir_min"])
+    if round(reproduced_drop, 1) != DESCRIPTIVE_ANCHOR_MGDL:
+        raise RuntimeError(
+            "Descriptive anchor reproduction failed: "
+            f"expected {DESCRIPTIVE_ANCHOR_MGDL:.1f}, got {reproduced_drop:.3f} mg/dL."
+        )
+
+    ramp_at_reference = TARGET_REFERENCE_G0_MGDL - G_FLOOR
+    initial_a_dir = inverse_softplus(EXERCISE_G_TARGET)
+    manifest = {
+        "magnitude_status": "imposed, not identified from AI-READI",
+        "anchor_kind": "descriptive, associational onset-aligned glucose drop",
+        "anchor_validation_role": (
+            "descriptive-in-cohort (associational); Step 4 checks wiring and "
+            "prior correctness, not independent validation"
+        ),
+        "anchor_source": str(
+            ROOT / "notebooks/stage2_residual_diagnostic.ipynb"
+        ),
+        "descriptive_kernel": str(DESCRIPTIVE_KERNEL),
+        "subgroup": SUBGROUP,
+        "moderate_anchor_mgdl": DESCRIPTIVE_ANCHOR_MGDL,
+        "moderate_anchor_n_episodes": int(moderate["n_episodes"]),
+        "anchor_precision_caveat": (
+            "n=118 is thin; magnitude remains an imposed prior, not an estimate"
+        ),
+        "reproduced_moderate_drop_mgdl": reproduced_drop,
+        "reproduced_moderate_nadir_min": reproduced_nadir,
+        "target_reference_g0_mgdl": TARGET_REFERENCE_G0_MGDL,
+        "g_floor_mgdl": G_FLOOR,
+        "ramp_at_reference_mgdl": ramp_at_reference,
+        "r_reference_assumption": (
+            "R=55 is a static reference-state value with g0=160 held fixed; "
+            "realized R uses drifting y_base over the horizon, so the realized "
+            "imposed drop is approximate"
+        ),
+        "hr_intensity_norm_bpm": HR_INTENSITY_NORM_BPM,
+        "moderate_A_at_sustained_plateau": 1.0,
+        "exercise_g_target_dimensionless": EXERCISE_G_TARGET,
+        "initial_a_dir_inverse_softplus": initial_a_dir,
+        "s_time_reference": (
+            "S is set from the peak/nadir reference; the +60 head value is "
+            "shape-determined and is not expected to equal 16.7 mg/dL"
+        ),
+        "conversion": (
+            "S_target = 16.7 mg/dL / "
+            "(A=1 * R=(160-105) mg/dL) = 0.303636"
+        ),
+        "forbidden_target_pattern": (
+            "outputs/study2_exercise_stage0*/deconfounded_effect_targets.csv"
+        ),
+    }
+    STEP0_MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n")
+
+    print("=" * 72)
+    print("PATH B EXERCISE SENSITIVITY HEAD, STEP 0")
+    print("=" * 72)
+    print("Magnitude status: IMPOSED, not identified from AI-READI.")
+    print("AI-READI contribution: timing, shape, and glucose-state gating.")
+    print("Anchor type: descriptive, associational onset-aligned glucose drop.")
+    print(f"Anchor source: {manifest['anchor_source']}, cell 24")
+    print(
+        f"Anchor value: {DESCRIPTIVE_ANCHOR_MGDL:.1f} mg/dL "
+        f"for moderate exercise, nadir about {DESCRIPTIVE_ANCHOR_NADIR_MIN} min."
+    )
+    print(f"Numeric kernel saved: {DESCRIPTIVE_KERNEL}")
+    print(
+        "Conversion: normalize sustained moderate effective HR intensity "
+        f"({HR_INTENSITY_NORM_BPM:.0f} BPM) to A=1."
+    )
+    print(
+        f"At reference g0={TARGET_REFERENCE_G0_MGDL:.0f}, "
+        f"R=relu({TARGET_REFERENCE_G0_MGDL:.0f}-{G_FLOOR:.0f})="
+        f"{ramp_at_reference:.0f} mg/dL."
+    )
+    print(
+        f"EXERCISE_G_TARGET = {DESCRIPTIVE_ANCHOR_MGDL:.1f}/"
+        f"{ramp_at_reference:.0f} = {EXERCISE_G_TARGET:.6f} dimensionless."
+    )
+    print(f"Initial a_dir for softplus(S)=target: {initial_a_dir:.6f}")
+    print(f"Step 0 manifest saved: {STEP0_MANIFEST}")
+    print("The Stage 0 deconfounded-effect CSV is not used as a target.")
+    print()
+    print("PAUSE: confirm imposed magnitude + source before wiring.")
+
+
+if __name__ == "__main__":
+    main()

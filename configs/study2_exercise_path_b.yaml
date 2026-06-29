@@ -1,0 +1,84 @@
+name: AI-READI-Path-B-Imposed-Exercise-Head
+
+framing:
+  magnitude_status: imposed_not_estimated
+  anchor_type: descriptive_in_cohort_associational
+  output_role: structurally_imposed_planning_response_not_causal_estimate
+  data_contribution: timing_shape_and_glucose_state_gating
+
+base_checkpoint: outputs/aireadi_stream_mamba_stateful_5epoch/checkpoints/best_model_checkpoint.pt
+step0_manifest: outputs/study2_exercise_path_b/step0_imposed_magnitude.json
+descriptive_kernel: outputs/study2_exercise_path_b/descriptive_associational_kernel.csv
+
+data:
+  panel_path: /home/myriamcharfeddine/CGM/Data/enriched_multimodal/final_multimodal_dataset_20260515_184339.parquet
+  static_path: /home/myriamcharfeddine/CGM/Data/enriched_multimodal/participant_static_features.parquet
+  cohort_path: /home/myriamcharfeddine/CGM/Data/enriched_multimodal/cohort.csv
+  schema: {}
+
+dataset:
+  bin_minutes: 5
+  horizon_steps: 12
+  clean_min_segment_hours: 49
+  target_transform: residual_current
+
+split:
+  mode: participant_heldout
+  existing_split_path: /home/myriamcharfeddine/CGM/Data/experiment_c_split_adapt6h_seed42/split_participants.csv
+  train: 0.70
+  val: 0.15
+  test: 0.15
+  seed: 42
+  stratify_col: participants_study_group
+
+exercise_head:
+  enabled: true
+  univariate_hr_only: true
+  cohort_wide: true
+  personalized: false
+  hr_deadzone_bpm: 15.0
+  hr_lag_support_min: 60
+  g_floor_mgdl: 105.0
+  resting_hr_source: stable_floor
+  hr_intensity_definition: relu(HR - resting_hr)
+  intensity_template:
+    light: 32.0
+    moderate: 39.0
+    vigorous: 50.0
+  bout_median_min: 30
+  rise_to_peak_min: 12
+  decay_min: 45
+  exercise_g_target: 0.30363636363636365
+  route_future_hr_via_head: true
+  scenario_decompose: true
+  use_rank_loss: false
+
+training:
+  batch_size: 8
+  chunk_length_hours: 6
+  training_anchor_stride_minutes: 15
+  val_anchor_stride_minutes: 15
+  max_epochs: 20
+  patience: 20
+  lr: 0.001
+  weight_decay: 0.0
+  gradient_clip_val: 1.0
+  scenario_decomposition_weight: 1.0
+  lambda_ex_prior: 0.2
+  seed: 0
+
+evaluation:
+  forecast_only_mae_required_each_epoch: true
+  mae_tolerance_mgdl: 0.3
+  subgroup: non_insulin
+
+output:
+  base_dir: outputs/study2_exercise_path_b_training
+  rank_suffixed_history: true
+  merge_rank_histories_on_rank0: true
+
+smoke:
+  max_train_streams: 6
+  max_val_streams: 3
+  max_anchors_per_stream: 4
+  max_epochs: 1
