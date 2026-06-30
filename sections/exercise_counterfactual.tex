@@ -2,47 +2,43 @@
 % Values are sourced from outputs/study2_exercise_stage0*,
 % outputs/study2_exercise_path_b*, and outputs/study2_exercise_advisory/.
 
-\section{From Residual Audit to Exercise Counterfactual: Identifiability, an Imposed Planning Response, and a Deployable Advisory}
+\section{Exercise Counterfactual: Imposed planning response, and a deployable advisory}
 \label{sec:exercise_counterfactual}
 
-\subsection{Why a Counterfactual, and the Identifiability Question}
+\subsection{Motivation for counterfactual}
 \label{subsec:ex_cf_question}
 
-The frozen-model residual audit found no exercise-specific MAE penalty, but it
-did find a horizon-growing positive signed residual in moderate and vigorous
-wearable-defined episodes. Under the notebook convention
+The frozen model residual analysis found no exercise specific MAE penalty, but it
+did find a horizon growing positive signed residual in moderate and vigorous
+wearable defined episodes. Under the notebook convention
 $b_h=\hat q_{50,t}^{(h)}-G_{t+h}$, this means that the model over-predicts the
-later glucose trajectory and under-represents the exercise-associated drop.
-This provisional residual headroom motivates a natural question: what would
+later glucose trajectory and under represents the exercise-associated drop.
+This motivates a natural question: what would
 glucose do if this person exercised?
 
-That question is not answered by detector validation. Detectability and
-identifiability are distinct. Detection is a signal-processing problem:
+That question is not answered by detector validation. Detection is a signal processing problem:
 steps and HR can locate an ambulatory exercise-like state. Identification is
-a confounding-and-overlap problem: comparable non-exercise outcomes must exist
+a confounding and overlap problem: comparable non exercise outcomes must exist
 for the same glucose state, time, and participant context. A detector can be
 accurate while the magnitude of the associated counterfactual response remains
-non-identifiable.
+non identifiable.
 
-\subsection{Stage 0: The Magnitude Is Not Identifiable on AI-READI}
+\subsection{Why the exercise effect size cannot be reliably estimated on AI-READI}
 \label{subsec:ex_stage0}
 
-Stage~0 attempted matched-control de-confounding. For each detected bout, the
-mean-reversion drift in matched non-exercise windows was subtracted from the
-observed 60-minute change. Cross-patient matching produced numerical overlap
-on baseline glucose $g_0$ and time of day, but not participant comparability.
+Here we tested whether the observed glucose change after detected exercise like episodes could be converted into a deconfounded estimate of the exercise response. The idea was to compare each exercise episodes with matched non exercise windows that had a similar baseline glucose level and occurred at a similar time of day. However, this matching strategy exposed a limitation of the AI-READI data. Cross patient matching produced many controls with similar baseline glucose and time of day, but most controls came from different participants.
 With the $\pm10$~mg/dL glucose caliper, $92.23\%$ to $97.24\%$ of controls were
 drawn from another participant across the five $g_0$ bins. In the
 $70$--$100$~mg/dL bin, the apparent effect was significantly positive,
 $+2.50$~mg/dL with 95\% CI $[+0.73,+4.31]$. Because the contrast is largely
-between people, this is a signature of residual between-person confounding,
+between people, this is a signature of residual between person confounding,
 not evidence of a physiological rise.
 
-Within-patient matching removed that low-$g_0$ result. The corresponding
+Within participant matching removed that low-$g_0$ result. The corresponding
 estimates were $+0.33$~mg/dL $[-5.40,+6.19]$ in the $70$--$100$ bin and
 $-0.10$~mg/dL $[-3.53,+3.23]$ in the $100$--$130$ bin. The cross-patient
 low-$g_0$ result therefore does not survive within-patient matching. This is
-a selection-aware statement, not evidence of a zero effect. Comparability
+a selection aware statement, not evidence of a zero effect. Comparability
 came at the cost of positivity: only $48$ of $510$ low-$g_0$ bouts were
 retained ($9.4\%$), and the two highest-$g_0$ bins retained only $17$ and $7$
 bouts. Retention in the $200$--$300$~mg/dL bin was $7.1\%$.
@@ -74,18 +70,13 @@ bouts. Retention in the $200$--$300$~mg/dL bin was $7.1\%$.
 \end{table}
 
 The within-patient curve is non-monotonic and changes sign across baseline
-bins. Thus no matching scheme supplies participant comparability and adequate
-positivity simultaneously for this estimand. The strong Stage~0 finding is
-that the exercise-response \emph{magnitude is not identifiable on AI-READI}.
-The de-confounded curve is not a defensible calibration target.
-
-\subsection{Path B: A Structured Exercise Head with Imposed Magnitude}
+bins. A true exercise counterfactual is not identifiable from AI-READI because the dataset is observational and does not contain randomized or externally assigned exercise interventions. The detected exercise episodes are inferred from wearable signals, mainly steps and heart rate, rather than recorded as ground-truth exercise sessions with known type, intensity, and intention. More importantly, the post exercise glucose response is affected by several unobserved or only partially observed factors, including recent meals, carbohydrate intake, insulin timing, insulin on-board, medication effects, stress, sleep, and baseline glucose trend. Therefore, comparing exercise windows with non exercise windows does not isolate the effect of exercise alone. Cross participant matching provides enough controls but compares different people with different physiology, while within participant matching improves comparability but leaves too few matched controls to estimate a stable effect. For this reason, AIREADI can support wearable defined exercise detection and predictive residual analysis, but it cannot provide a reliable causal estimate of the exact glucose change that would have occurred under a do exercise  intervention.
+\subsection{Counterfactual: Exercise head with imposed magnitude}
 \label{subsec:ex_pathb}
 
-Path~B retains what AI-READI can support without treating the Stage~0 curve as
-identified. The magnitude is imposed from the descriptive, associational
-moderate-strain kernel of $16.66$~mg/dL, while AI-READI supplies timing, shape,
-and live glucose-state gating. The output is an imposed planning response,
+The magnitude is imposed from the descriptive, associational
+moderate strain kernel of $16.66$~mg/dL, while AI READI supplies timing, shape,
+and live glucose state gating. The output is an imposed planning response,
 not a causal estimate. At forecast horizon $h$, the head is
 \begin{equation}
   \Delta\hat y_{\mathrm{ex},h}=-A_hR_hS,
@@ -106,7 +97,7 @@ causal short-lag kernel $k$; $R_h$ is a one-sided glucose-state safety ramp;
 and $S$ is one cohort-wide scalar. There is no per-participant sensitivity
 term. Participant exercise sensitivity was not recoverable from the state,
 and the insulin-resistance hypothesis closed as a negative result: baseline
-glucose was the only predictor of the subsequent drop.
+glucose was the only predictor of the subsequent drop. So since AI-READI could not identify the true exercise magnitude, I imposed a reasonable magnitude from the descriptive kernel, then used AI-READI wearable signals to control timing, shape, and safety gating.
 
 The attempted gain optimization is itself informative. Training against the
 scenario loss moved $S$ from $0.303636$ to $0.123238$. The scenario pinball
@@ -122,8 +113,7 @@ magnitude with $g_0$, with
 $\operatorname{corr}(g_0,\Delta\hat y_{\mathrm{ex}})=-0.9402$ at the
 45-minute peak. In the $160$--$200$~mg/dL bin, the median peak is
 $-17.50$~mg/dL at 45 minutes and has begun to recover by 60 minutes
-($-14.05$~mg/dL). Forecast MAE is unchanged at $10.0665$~mg/dL
-($\Delta\mathrm{MAE}=0.0000$). The realized $17.50$~mg/dL peak can exceed
+($-14.05$~mg/dL). Forecast MAE is unchanged at $10.0665$~mg/dL. The realized $17.50$~mg/dL peak can exceed
 the $16.66$~mg/dL static anchor because the live $R_h$ trajectory can exceed
 the static reference $R=55$; it was reported as observed and not retuned.
 
@@ -131,25 +121,27 @@ the static reference $R=55$; it was reported as observed and not retuned.
   \centering
   \includegraphics[width=0.95\linewidth]{exercise/fig_exercise_path_b_s25.png}
   \caption{%
-    \textbf{Path B imposed planning response.}
-    Dose response across wearable-defined HR intensity and glucose-state
-    gating at 60 minutes. Magnitude is imposed; AI-READI supplies timing,
-    shape, and live glucose-state gating. This is a planning response, not a
+    \textbf{Imposed planning response}
+    Dose response across wearablevdefined HR intensity and glucose-state
+    gating at 60 minutes. Magnitude is imposed; AIREADI supplies timing,
+    shape, and live glucose state gating. This is a planning response, not a
     causal estimate. Comparison with the descriptive kernel is a wiring
     check, not independent validation, because that kernel supplied the
     magnitude anchor.%
   }
   \label{fig:exercise_pathb_doeffect}
 \end{figure}
+Figure \ref{fig:exercise_pathb_cards} is an answer to the question: given the current forecast and exercise state defined on wearable signals, what would the imposed "do exercise" look like?
 
+This figure shows three example forecast cards where the frozen SSM-CGM forecast is overlaid with an imposed "do exercise" response: the overlay lowers glucose when baseline glucose is high, is blocked when hypoglycemia risk is present, and remains descriptive rather than causal because the exercise magnitude was manually imposed rather than identified from AI-READI.
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.95\linewidth]{exercise/interp_cf_cards.png}
   \caption{%
-    \textbf{Single-action Path B interpretation cards.}
+    \textbf{Single action interpretation cards }
     Rising-high, falling-low, and stable states show the frozen forecast,
     $q_{10}$--$q_{90}$ band, actual outcome, imposed do(exercise) overlay, and
-    frozen-model driver attribution. No insulin action is shown because
+    frozen model driver attribution. No insulin action is shown because
     dosing is unavailable, and no carbohydrate action is shown because the
     meal counterfactual was not constructible. The falling-low state has
     $g_0=95$~mg/dL and imposed lowering of $0.0$~mg/dL, demonstrating safety
@@ -159,17 +151,17 @@ the static reference $R=55$; it was reported as observed and not retuned.
   \label{fig:exercise_pathb_cards}
 \end{figure}
 
-\subsection{Path C: An Identified, Deployable Exercise-Aware Hypoglycaemia Advisory}
+\subsection{Identified, deployable exercise aware Hypoglycaemia advisory}
 \label{subsec:ex_pathc}
 
-Path~C avoids a counterfactual. It is an identified predictive advisory built
-on the frozen model and the measured signed-bias trajectory, evaluated against
+In this part we  focus on identified predictive advisory built
+on the frozen model and the measured signed bias trajectory, evaluated against
 the model's own forecasts and observed outcomes without a control arm. Its
 scope is 3{,}813 moderate or vigorous non-insulin windows from 470 episodes,
 including 105 observed hypoglycaemic outcomes.
 
 \paragraph{Claim 1: ranking.}
-The forecast-only risk-averse $q_{10}$ nadir ranks observed exercise-associated
+The forecast-only risk-averse $q_{10}$ lowest point ranks observed exercise-associated
 hypoglycaemia substantially better than current glucose. Pooled AUROC is
 $0.974$ without correction and $0.975$ with correction, versus $0.833$ for
 current $g_0$. Corrected and uncorrected curves overlap because AUROC is
@@ -178,8 +170,8 @@ comes from the streaming encoder reading impending exercise-like dynamics,
 including rising HR. Median warning lead time is 30 minutes.
 
 \paragraph{Claim 2: calibration at 70 mg/dL.}
-Applying the signed-bias correction at the fixed 70~mg/dL threshold raises
-sensitivity from $0.429$ to $0.762$ and rescues 35 near-miss hypoglycaemic
+Applying the signed bias correction at the fixed 70~mg/dL threshold raises
+sensitivity from $0.429$ to $0.762$ and rescues 35 near miss hypoglycaemic
 outcomes. The gain is concentrated in vigorous windows, where sensitivity
 rises from $0.179$ to $0.846$ and the bias reaches $7.17$~mg/dL at 60 minutes;
 26 of the 35 rescued outcomes are vigorous. The gain has a clear price:
@@ -208,25 +200,23 @@ remaining missed outcomes are the frozen model's residual blind spot.
 \subsection{Synthesis and Limitations}
 \label{subsec:ex_synthesis}
 
-The complete arc separates four contributions. First, a wearable-only
-detector identifies ambulatory exercise-like episodes without glucose in the
-detection path. Second, Stage~0 establishes that the counterfactual magnitude
-is not identifiable on AI-READI because cross-patient matching offers overlap
-without comparability, while within-patient matching offers comparability
+The complete exercise part separates into four contributions. First, a wearable only
+detector identifies ambulatory exercise like episodes without glucose in the
+detection path. Second, we establishe that the counterfactual magnitude
+is not identifiable on AI-READI because cross patient matching offers overlap
+without comparability, while within patient matching offers comparability
 without positivity. This is a transferable design finding, analogous to the
-need for participant-disjoint evaluation splits. Third, Path~B provides an
-honest imposed planning response whose timing, shape, and glucose-state gating
-are data-derived but whose magnitude is not estimated. Fourth, Path~C provides
-an identified advisory with a calibration benefit at a pre-specified threshold.
+need for participant disjoint evaluation splits. Third, part ~\ref{subsec:ex_pathb} provides an imposed planning response whose timing, shape, and glucose state gating
+are data derived but whose magnitude is not estimated. Fourth, part ~\ref{\label{subsec:ex_pathc} provides
+an identified advisory with a calibration benefit at a prespecified threshold.
 
-The detector remains wearable-defined rather than ground-truth-labelled and
+The detector remains wearable defined rather than ground truth labelled and
 is primarily sensitive to ambulatory activity. Meals, time of day, medication,
-and selection can influence the descriptive kernel. Path~B inherits the
-$n=118$ moderate-episode anchor and its imposed magnitude should not be read as
-a causal estimate. Path~C has 105 hypoglycaemic outcomes, and its correction
+and selection can influence the descriptive kernel. Part~\ref{subsec:ex_pathb} inherits the
+$n=118$ moderate episode anchor and its imposed magnitude should not be read as
+a causal estimate. Part ~\ref{\label{subsec:ex_pathc} has 105 hypoglycaemic outcomes, and its correction
 improves threshold calibration rather than ranking. Insulin dosing is
-unobserved, so insulin-treated participants are excluded from all causal scope;
-the analyses here make no causal exercise claim even in the non-insulin cohort.
+unobserved, so insulin treated participants are excluded from all causal scope.
 
 \begin{table}[H]
   \centering
