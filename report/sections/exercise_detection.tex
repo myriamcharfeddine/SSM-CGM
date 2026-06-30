@@ -1,0 +1,509 @@
+% ─────────────────────────────────────────────────────────────────────────────
+% Wearable-Defined Exercise Episode Detection and Residual Audit
+% Numbers sourced from:
+%   notebooks/outputs/exercise_episode_detection_v2/detector_config.json
+%   notebooks/outputs/exercise_episode_detection_v2/exercise_detection_summary.csv
+%   notebooks/outputs/exercise_episode_detection_v2/onset_refinement_summary.csv
+%   outputs/stage2_residual_diagnostic/diagnostic_verdict.json
+%   outputs/stage2_residual_diagnostic/residual_comparison_summary.csv
+%   outputs/stage2_residual_diagnostic/residual_trajectory_summary.csv
+% No numbers invented.
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Wearable-Defined Exercise Episode Detection and Residual Audit}
+\label{sec:exercise_detection}
+
+\subsection{Motivation and Positioning}
+\label{subsec:ex_motivation}
+
+The meal counterfactual is not identifiable on AI-READI
+(Section~\ref{sec:study1_cf_audit}), and the event-aware residual correction
+(Section~\ref{sec:study2}) yields a statistically significant but modest
+improvement of $0.175$~mg/dL on triggered windows.
+AI-READI participants wore Garmin wrist devices that record heart rate (HR),
+step counts, and respiratory rate (RR) continuously, making ambulatory
+exercise-like states the natural target for a second observational analysis.
+Unlike meal events, physical activity produces large, time-locked physiological
+signals in HR and steps that are detectable without any glucose information.
+
+This analysis pursues three goals: (i)~construct a validated detector of
+ambulatory exercise-like episodes using only wearable signals; (ii)~characterise
+the descriptive glucose response at detected onsets; and (iii)~audit the frozen
+base model's residuals at exercise-like windows to determine whether systematic
+signed bias justifies a correction or advisory.
+The analysis remains descriptive and observational throughout.
+No causal claims about exercise physiology are made, and all findings are
+scoped to non-insulin participants unless noted.
+
+\subsection{Available Wearable Signals and Design Constraints}
+\label{subsec:ex_signals}
+
+The Garmin wrist stream provides HR (bpm), step counts (steps per 5-minute
+epoch), RR (breaths/min), a sleep-stage label, and device-derived fields
+including estimated calories per minute and a Garmin activity intensity score.
+
+Four design constraints govern signal use in the detector.
+\textbf{First}, glucose is never used to detect or gate episodes; glucose
+appears only as a post-hoc outcome variable.
+\textbf{Second}, calories per minute and the Garmin activity intensity score
+are excluded from all gates because both are partly derived from HR; using them
+would circularly reinforce the HR criterion.
+\textbf{Third}, a rolling local HR delta was considered as an onset-refinement
+feature but demoted to visualisation and onset diagnosis only, because a
+backwards-looking delta over exercise windows self-contaminates the anchor test.
+\textbf{Fourth}, RR is used descriptively but not as a gate: its noise level
+on wrist PPG is too high for a reliable onset criterion at 5-minute resolution.
+
+The working signals for detection are therefore HR (excess above a stable
+resting floor), step count rate, and the sleep label (for daytime restriction).
+
+\subsection{Stable HR Floor and Activity-Led Gate}
+\label{subsec:ex_gate}
+
+\paragraph{Stable resting HR floor.}
+Each participant's resting HR floor is defined as the 5th percentile of
+all HR observations recorded during sedentary, awake windows
+(step rate below threshold, sleep label absent).
+This is a \emph{stable, person-specific baseline} computed once per
+participant; it is never a rolling window, which would absorb exercise-induced
+HR elevation and suppress the excess signal.
+
+\paragraph{HR excess.}
+At each 5-minute anchor $t$, the HR excess above the stable floor is
+\begin{equation}
+  \Delta\mathrm{HR}_{t} = \mathrm{HR}_{t} - \mathrm{HR}_{\text{floor}},
+  \label{eq:hr_excess}
+\end{equation}
+where $\mathrm{HR}_{\text{floor}}$ is the 5th-percentile stable resting HR
+for that participant.
+
+\paragraph{Anchor gate.}
+A window is flagged as an anchor (potential exercise bout) when all three
+of the following hold simultaneously:
+\begin{align}
+  \overline{\mathrm{steps}}_{t,15\text{min}} &\geq 40 \text{ steps/min} \quad (\text{STEP\_RATE\_FLOOR}), \label{eq:gate_steps} \\
+  \overline{\Delta\mathrm{HR}}_{t,15\text{min}} &\geq 8 \text{ bpm}    \quad (\text{HR\_EXCESS\_FLOOR}), \label{eq:gate_hr} \\
+  \mathrm{sleep}_{t}                            &= 0.                  \label{eq:gate_wake}
+\end{align}
+Steps lead the gate; HR excess confirms physiological arousal.
+Glucose, calories, and the Garmin intensity score are absent from all
+three conditions.
+
+\paragraph{Strain grading.}
+Strain is graded against a person-specific 20th-percentile HR excess floor
+(not the detection-gate 5th-percentile floor), creating three bands:
+light ($\Delta\mathrm{HR} \in [8, 15)$~bpm), moderate ($[15, 30)$~bpm),
+and vigorous ($\geq\!30$~bpm).
+A sub-threshold class captures anchors that clear the 5th-percentile step
+criterion but fall below the 8-bpm excess floor; these are retained in
+cadence analysis but excluded from the residual audit.
+
+\subsection{Episode Construction and Refined Onset}
+\label{subsec:ex_episodes}
+
+\paragraph{Episode construction.}
+Consecutive anchor windows are merged into bouts
+(merge gap $\leq 5$~min, minimum bout $= 10$~min, maximum $= 120$~min).
+Bouts are further excluded if they overlap with more than 5\% of
+sleep-stage annotations or form part of a long active envelope
+($\geq 3$~hr of continuous activity), leaving the \textbf{clean} set
+(primary definition).
+A stricter sensitivity subset additionally requires the post-episode
+HR-recovery fraction to exceed 30\% within 30 minutes
+(strict-recovery definition).
+
+The clean set contains \textbf{2{,}171 episodes} across \textbf{788 participants}.
+The strict-recovery sensitivity subset contains \textbf{1{,}015 episodes}
+across \textbf{574 participants}.
+
+\paragraph{Confidence score and refined onset.}
+A composite confidence score weights five signals:
+activity quality ($w = 0.40$), HR excess ($w = 0.30$),
+RR elevation ($w = 0.10$, descriptive), duration quality ($w = 0.10$),
+and recovery ($w = 0.10$); a sleep overlap penalty overrides all positive
+weights ($w = -1.0$).
+A high-confidence episode exceeds a score of 0.65; medium confidence falls
+between 0.40 and 0.65.
+The confidence-window start (when the bout first exceeds the anchor gate)
+is \emph{not} used as the onset: the detector backtracks from the
+confidence start to the earliest sustained step rise within 45 minutes,
+producing a \textbf{refined onset} that precedes the confidence gate.
+
+Across all 3{,}131 onset-refined bouts, the \textbf{median refined-onset
+advance is 30 minutes} (mean 41.6~min) relative to the confidence-window
+start.
+Onset and offset are symmetric: if the start is pulled back, the
+end is extended by the same logic, subject to a sleep-label clamp
+and the 120-min duration cap.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{exercise/aligned_ambulatory_confidence_vs_refined.pdf}
+  \caption{%
+    \textbf{Confidence-window onset versus refined onset.}
+    Each episode is aligned to its confidence-window start (vertical dashed
+    line at $t=0$); traces show mean step rate (top) and HR excess (bottom)
+    for 90~min before and after that anchor.
+    The median refined onset (30~min before the confidence start) captures
+    the sustained step rise that precedes the confidence gate, confirming
+    that the confidence-window start systematically lags the earlier
+    wearable-defined activity signal.%
+  }
+  \label{fig:exercise_confidence_vs_refined}
+\end{figure}
+
+\subsection{Detector Validation}
+\label{subsec:ex_validation}
+
+\paragraph{Episode timelines.}
+The first alignment below shows the per-episode
+wearable-signal alignment at the refined onset, pooled across all clean
+episodes.
+Steps rise sharply at $t=0$ and HR excess follows within 5--10 minutes,
+consistent with an activity-led gate in which step elevation precedes the
+cardiovascular response.
+The paired timelines below illustrate clean detection across an active day
+for participants 1029 and 1030; participant 4022 is shown
+as a diagnostic example with more complex episode structure and is discussed
+in supplementary context only.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{exercise/aligned_ambulatory_refined_start.pdf}
+  \caption{%
+    \textbf{Wearable signals aligned at the refined episode onset.}
+    Mean and 95\% bootstrap CI for step rate (top) and HR excess
+    above the stable resting floor (bottom), aligned at $t=0$
+    (refined onset) across all 2{,}171 clean ambulatory exercise-like
+    episodes.
+    Steps rise sharply at onset; HR follows within 5--10 minutes,
+    consistent with the activity-led gate design in which steps lead
+    and HR confirms.
+    No glucose signal is used in detection; the glucose trace visible
+    in the full notebook is shown post-hoc only.%
+  }
+  \label{fig:exercise_refined_start}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{exercise/negative_control_validation.pdf}
+  \caption{%
+    \textbf{Negative control validation.}
+    Three conditions aligned at a common reference: (i) real refined
+    exercise-like onsets; (ii) the same onsets time-shifted by
+    $+6$~hours (temporal negative control); and (iii) random
+    awake anchors matched on time-of-day (distributional negative control).
+    Real onsets show a sharp, coordinated HR and step rise.
+    Both negative controls are flat across the alignment window,
+    validating that the detector captures a real physiological signal
+    rather than circadian variation or device artefact.
+    Exact mean HR-excess and step-rate values at $t=0$ for each condition
+    are readable from the figure.%
+  }
+  \label{fig:exercise_negative_controls}
+\end{figure}
+
+Using the pre-registered rise contrast, defined as the mean over
+$[0,15]$ minutes minus the mean over $[-15,0]$ minutes, real onsets showed
+an HR-excess rise of $8.01$~bpm and a step-rate rise of
+$29.44$~steps/min.  The $+6$~hour control showed $0.27$~bpm and
+$-0.93$~steps/min, while the random-awake control showed $-0.46$~bpm and
+$-0.23$~steps/min.  The resulting separation from the strongest control
+was $7.74$~bpm for HR excess and $29.67$~steps/min for step rate.
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}[b]{0.49\linewidth}
+    \centering
+    \includegraphics[width=0.95\linewidth]{exercise/timeline_refined_1029_20230910.pdf}
+    \caption{Participant 1029, 2023-09-10}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[b]{0.49\linewidth}
+    \centering
+    \includegraphics[width=0.95\linewidth]{exercise/timeline_refined_1030_20230910.pdf}
+    \caption{Participant 1030, 2023-09-10}
+  \end{subfigure}
+  \caption{%
+    \textbf{Representative episode timelines (participants 1029 and 1030).}
+    Each panel shows a full day of HR, step rate, sleep label, and
+    detected episode boundaries (refined onset/offset, shaded region).
+    Both participants show clear HR-step coupling at episode boundaries.
+    Participant 4022 (available as a supplementary figure) illustrates
+    a participant with more complex episode structure and is used for
+    diagnostic illustration only.%
+  }
+  \label{fig:exercise_timeline_examples}
+\end{figure}
+
+\subsection{Cadence--Strain Grading}
+\label{subsec:ex_grading}
+
+Episode type is characterised along two independent axes.
+\textbf{Cadence} is the mean step rate over active-core minutes
+(minutes with $\geq 20$ steps/min within the episode) and is
+person-invariant: it reflects movement pattern independent of
+the participant's cardiovascular fitness.
+Four cadence classes are defined: slow walk (40--80 steps/min),
+walk (80--110), brisk walk (110--130), and run-like ($\geq\!130$).
+``Run-like'' denotes high-cadence ambulation and does not confirm
+a specific activity mode.
+
+\textbf{Strain} is the HR excess above the person-specific 20th-percentile
+sedentary-awake floor and is person-specific: it reflects cardiovascular
+load relative to that participant's own baseline.
+Three strain bands are defined: light (8--15~bpm excess), moderate
+(15--30~bpm), and vigorous ($\geq\!30$~bpm).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{exercise/cadence_strain_heatmap.pdf}
+  \caption{%
+    \textbf{Cadence--strain episode heatmap.}
+    Each cell shows episode count (or a derived metric) for the
+    cadence-class (columns) by strain-class (rows) joint distribution
+    across the 2{,}171 clean episodes.
+    Slow walk and walk cadence classes dominate numerically.
+    A notable feature is that many slow-walk episodes carry moderate or
+    vigorous strain, reflecting inter-individual variability: a slow gait
+    can be cardiovascularly demanding for participants with low fitness or
+    high resting HR variability.
+    This heterogeneity motivates stratified analysis later
+    (Section~\ref{subsec:ex_residual}) but does not support inference about
+    insulin resistance or cardiovascular fitness.%
+  }
+  \label{fig:exercise_cadence_strain}
+\end{figure}
+
+\subsection{Recovery and Quality Control}
+\label{subsec:ex_recovery}
+
+HR recovery is assessed as the fraction of the HR excess that dissipates
+within 30 minutes post-episode (recovery\_frac\_thresh $= 0.30$).
+Recovery is used as a \emph{sensitivity marker}, not a hard detection
+criterion: episodes failing recovery are retained in the primary set but
+excluded from the strict-recovery sensitivity subset.
+This design avoids circularity in which a recovery criterion would
+preferentially select short, high-intensity bouts that happen to have
+large post-episode HR drops.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{exercise/recovery_aligned_end.pdf}
+  \caption{%
+    \textbf{HR recovery aligned at episode end.}
+    Mean HR excess (with 95\% CI) in the 60~minutes following the
+    episode end, stratified by strict-recovery pass/fail.
+    Episodes that pass the strict-recovery criterion (fraction $\geq 0.30$
+    within 30~min post-end) show a clear HR return toward baseline;
+    episodes that fail show a slower or partial return, consistent with
+    extended moderate-activity transitions rather than detector error.
+    Recovery rate is interpreted as a sensitivity marker for episode
+    quality, not a physiological claim.%
+  }
+  \label{fig:exercise_recovery}
+\end{figure}
+
+\subsection{Preliminary Glucose-Response Kernel}
+\label{subsec:ex_glucose_kernel}
+
+The aligned kernel below shows mean glucose at the refined episode onset,
+pooled across all clean episodes with available CGM.
+The descriptive profile shows a \textbf{16.66~mg/dL drop}
+(the moderate-strain, non-insulin anchor used in the planning response
+in Section~\ref{subsec:ex_pathb}), with a nadir at
+\textbf{28.31 minutes}
+post-onset, followed by a partial rebound within the observation window.
+
+This is a \textbf{purely descriptive, associational pattern}.
+It is not a causal estimate.
+The observed trajectory is potentially confounded by meals occurring during or
+near exercise bouts, pre-exercise glucose level (regression to the mean),
+circadian time-of-day, and selection of episode type.
+Insulin-treated participants are excluded from causal interpretation throughout;
+the kernel here is descriptive across all participants with CGM coverage.
+The kernel is later used as a magnitude anchor for the planning response
+(Section~\ref{subsec:ex_pathb}), where this descriptive-associational
+role is stated explicitly.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{exercise/glucose_aligned_at_onset.png}
+  \caption{%
+    \textbf{Descriptive glucose kernel aligned at refined episode onset.}
+    Mean glucose (mg/dL) with 95\% bootstrap CI, aligned at $t=0$
+    (refined onset) across clean episodes with CGM coverage.
+    The profile shows an approximate 16.7~mg/dL drop and a partial rebound.
+    This is a descriptive, associational pattern: confounding by meals,
+    baseline glucose, and time-of-day is possible and not controlled.
+    Glucose is never used to detect episodes; this is a post-hoc summary.%
+  }
+  \label{fig:exercise_glucose_kernel}
+\end{figure}
+
+\subsection{Frozen Base-Model Residual Audit}
+\label{subsec:ex_residual}
+
+The residual audit asks whether the frozen \texttt{mamba\_stateful\_5epoch}
+base model (the same checkpoint as Study~2) makes systematically larger errors
+inside exercise-like windows than outside.
+For each clean episode with forecast-cache coverage, a matched non-exercise
+control window is drawn from the same participant, matched within
+$\pm 60$~min time-of-day and $\pm 20$~mg/dL baseline glucose.
+The signed residual follows the notebook convention:
+\begin{equation}
+  b_{h} = \hat{q}_{50,t}^{(h)} - G_{t+h},
+  \label{eq:signed_residual}
+\end{equation}
+where $\hat{q}_{50,t}^{(h)}$ is the frozen-base median forecast at horizon $h$
+issued from anchor $t$.
+Positive $b_{h}$ indicates that the base model over-predicts actual glucose,
+so the observed glucose is lower than forecast.  The horizon-growing positive
+bias therefore indicates that the frozen model under-represents the
+exercise-associated drop.
+
+Matching yielded \textbf{212 episode--control pairs}
+($316$ episodes passed Step~0, $271$ had cache coverage, and $212$ found a
+within-participant matched control at the selected tolerance).
+
+\paragraph{MAE comparison.}
+Episode and control windows show no statistically distinguishable MAE gap:
+paired MAE gap (all strains): $+0.29$~mg/dL, 95\% CI $[-0.68,\;+1.28]$
+(CI includes zero).
+The null MAE finding holds within each strain class
+(vigorous: $+0.67$ $[-0.51,\;+1.83]$;
+moderate: $-0.17$ $[-1.72,\;+1.56]$).
+The frozen model is not less accurate during exercise-like windows on the
+absolute error metric.
+
+\paragraph{Signed bias (recoverable headroom).}
+The signed bias reveals a different picture.
+The model's forecast progressively over-predicts the actual glucose
+trajectory during exercise-episode horizons compared to matched controls,
+growing with forecast horizon.
+At the matched-pairs level:
+
+\begin{itemize}
+  \item \textbf{Vigorous} ($n = 104$ pairs):
+        episode signed bias $+3.82$ mg/dL (95\% CI $[+2.35,\;+5.21]$);
+        control signed bias $-0.37$ mg/dL ($[-1.51,\;+0.68]$);
+        \textbf{paired bias gap $+4.19$ mg/dL} (CI $[+2.33,\;+5.97]$,
+        CI excludes zero).
+  \item \textbf{Moderate} ($n = 102$ pairs):
+        episode signed bias $+2.20$ mg/dL (95\% CI $[+0.09,\;+4.09]$);
+        control signed bias $-1.85$ mg/dL ($[-3.40,\;-0.33]$);
+        \textbf{paired bias gap $+4.05$ mg/dL} (CI $[+1.83,\;+6.29]$,
+        CI excludes zero).
+  \item \textbf{Light} ($n = 6$ pairs):
+        paired bias gap $+4.43$ mg/dL (CI $[-4.47,\;+15.11]$,
+        CI includes zero). \emph{Do not interpret: very low sample size.}
+\end{itemize}
+
+\noindent
+The bias gap for vigorous and moderate strain both exclude zero, indicating
+provisional, recoverable headroom above matched controls.
+The verdict from the diagnostic pipeline is
+\textbf{JUSTIFIED} (vigorous headroom exceeds the 2~mg/dL material-gap
+threshold; moderate also exceeds it but with a wider CI).
+The headroom is termed \emph{provisional} here because:
+the analysis is scoped to non-insulin T2D participants (descriptive for
+insulin-treated; the insulin-treated subgroup has $n = 32$ pairs and
+wide CIs); episode count is modest; matching tolerance is coarse.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{exercise/episode_vs_control_residual_by_strain.png}
+  \caption{%
+    \textbf{Episode versus matched-control signed residual by strain class.}
+    Each panel shows the mean signed residual (mg/dL) for exercise-like
+    episodes (red) versus matched non-exercise controls (blue) at the
+    median horizon, stratified by strain class.
+    Error bars are 95\% bootstrap CIs.
+    Vigorous and moderate episodes show a positive bias gap relative to
+    matched controls (CIs excluding zero), while light episodes
+    ($n = 6$ pairs) show a wide CI.
+    No causal claim is made: the bias reflects the frozen model's inability
+    to anticipate the exercise-associated glucose recovery, not a confirmed
+    exercise effect.%
+  }
+  \label{fig:exercise_residual_strain}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{exercise/residual_trajectory_by_horizon.png}
+  \caption{%
+    \textbf{Signed residual trajectory by forecast horizon and strain class.}
+    Mean signed residual ($b_h = \hat{q}_{50}^{(h)} - G_{t+h}$, mg/dL) for
+    episodes (red) and matched controls (blue) as a function of forecast
+    horizon (5--60 min), stratified by strain class (light, moderate, vigorous).
+    The episode residual grows monotonically with horizon for moderate and
+    vigorous strain, while the control residual remains near zero.
+    Light episodes ($n = 6$) show a wide CI that precludes interpretation.
+    This horizon-growing bias is the provisional headroom that motivates
+    both Path~B (planning response) and Path~C (advisory correction) in
+    Section~\ref{sec:exercise_counterfactual}.%
+  }
+  \label{fig:exercise_residual_horizon}
+\end{figure}
+
+\subsection{Limitations Bridging to the Counterfactual}
+\label{subsec:ex_limitations}
+
+The detector is wearable-defined, not ground-truth-validated against
+prospective exercise logs.
+Detection captures ambulatory, step-based activity; low-step activities
+(resistance training, isometric exercise, stationary cycling) are not reliably
+captured.
+RR is too noisy for reliable onset detection at wrist-PPG resolution and is
+used descriptively only.
+Meal confounding is possible within the glucose kernel: episode windows
+of 10--120 min can overlap with eating, particularly at mealtimes.
+
+The residual audit is scoped to non-insulin participants for causal
+interpretation; insulin-treated results are reported descriptively
+because unobserved insulin dosing is a direct confounder of the glucose
+trajectory.
+Subgroup analyses by cadence class, time-of-day, and participant phenotype
+are deferred until the detector and kernel are confirmed stable on a
+holdout population.
+
+The insulin-resistance hypothesis was tested and closed as a negative result:
+baseline glucose was the only predictor of the subsequent drop, and no
+recoverable participant exercise-sensitivity term was found.  The relationship
+between cadence--strain heterogeneity and participant metabolic profiles is
+therefore framed as a fairness and heterogeneity issue to characterise in
+future work, not as evidence for a biological mechanism.
+
+% ── Summary Table ─────────────────────────────────────────────────────────────
+
+\begin{table}[H]
+  \centering
+  \caption{%
+    \textbf{EX-T1: Detector and residual audit summary.}
+    All values are sourced from notebook or pipeline output artifacts.%
+  }
+  \label{tab:exercise_summary}
+  \small
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{p{0.20\linewidth}p{0.37\linewidth}p{0.34\linewidth}}
+    \toprule
+    Item & Result & Interpretation \\
+    \midrule
+    Clean episodes (primary)    & 2{,}171           & Primary detection set \\
+    Participants (clean)        & 788               & Unique participants with $\geq 1$ clean episode \\
+    Strict-recovery subset      & 1{,}015 episodes  & 574 participants; sensitivity check \\
+    Median onset shift          & 30 min            & Refined onset precedes confidence-window start \\
+    Negative-control HR rise    & 8.01 vs 0.27 / $-0.46$ bpm & Real vs shifted / random-awake \\
+    Negative-control steps rise & 29.44 vs $-0.93$ / $-0.23$ steps/min & Real vs shifted / random-awake \\
+    Cadence distribution        & 1{,}859 slow; 223 walk; 81 sub-threshold; 6 brisk; 2 run-like & Slow walk dominates \\
+    Glucose kernel drop         & 16.66 mg/dL & Descriptive-associational; anchor for Path~B \\
+    Glucose kernel nadir        & 28.31 min & Moderate-strain, non-insulin anchor \\
+    MAE gap (vigorous)          & $+0.67$ $[-0.51,\;+1.83]$~mg/dL & CI includes zero; no error increase \\
+    MAE gap (moderate)          & $-0.17$ $[-1.72,\;+1.56]$~mg/dL & CI includes zero; no error increase \\
+    Signed bias gap (vigorous)  & $+4.19$ $[+2.33,\;+5.97]$~mg/dL & CI excludes zero; provisional headroom \\
+    Signed bias gap (moderate)  & $+4.05$ $[+1.83,\;+6.29]$~mg/dL & CI excludes zero; provisional headroom \\
+    Residual audit verdict      & JUSTIFIED         & Vigorous headroom $>$ 2 mg/dL threshold \\
+    \bottomrule
+  \end{tabular}
+\end{table}
