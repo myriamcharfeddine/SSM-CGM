@@ -362,7 +362,7 @@ Within both arms, the counterfactual effect is stratified by pre-event glycemic 
 
 This section collects the complete artifact-grounded evidence summary for the meal counterfactual audit. All values in figures and tables are read from CSV artifacts and cross-checked at generation time. No values are hard-coded in prose or scripts without a corresponding CSV row.
 
-\subsection{Leakage and Redundancy}
+\subsection{x}
 \label{subsec:study1_leakage}
 
 Figure~\ref{fig:f1_leakage_redundancy} and Table~\ref{tab:t1_ablation} report the seven-setup ablation. The central empirical result is Eq.~\eqref{eq:meal-central-comparison}: $C \gg C' \approx D \approx H \approx A'$. The leakage-free causal teacher C' sits at the slope-and-clock baseline A', while the bidirectional teacher C reaches substantially lower MAE and peak error, but that gap is future-glucose leakage and is fully unreachable at deployment. The partial correlation of the deployable student D with the q50 residual after removing slope, level, and clock is 0.101, compared to 0.519 for the leaky teacher C and 0.027 for the causal ceiling C'. The near-collapse of causal partial correlations confirms that the deployable features carry little information orthogonal to the CGM slope already available in the base model.

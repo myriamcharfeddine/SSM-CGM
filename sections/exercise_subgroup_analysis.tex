@@ -8,14 +8,17 @@
 \section{Descriptive Heterogeneity of the Exercise Glucose Response}
 \label{sec:exercise_subgroup}
 
-This section characterises descriptive heterogeneity in the glucose response
-to wearable-defined ambulatory exercise-like episodes across participant
-subgroups, cadence--strain combinations, and metabolic phenotypes.
-All analyses are associational; no subgroup contrast is a causal effect.
-Groups with fewer than 20 episodes or 10 unique participants are suppressed.
-Legend entries report the number of episodes~(\emph{n}) and unique
-participants~(\emph{p}); for quartile-based subgroups, the effective
-within-group numeric range is also shown.
+This section characterizes how glucose behaves after wearable-defined ambulatory exercise like episodes and to understand whether the observed glucose response is homogeneous or whether it differs across episode intensity, baseline glucose, glycemic phenotype, clinical variables, and demographic subgroups.
+
+The detector is wearable-defined rather than ground-truth exercise-labeled, and glucose is used only as an outcome after episode detection. Groups with fewer than 20 episodes or fewer than 10 unique participants are suppressed. Legend entries report both the number of episodes (n) and the number of unique participants (p).
+
+The main purpose of this section is to answer three questions:
+
+Is there a reproducible glucose pattern after detected exercise-like episodes?
+Which sources of heterogeneity are largest?
+Does the frozen forecasting model miss the post-exercise glucose trajectory in a systematic way?
+
+The overall interpretation is that the post exercise glucose response is real but heterogeneous. The largest visible driver is baseline glucose at exercise onset. Several participant characteristics show apparent differences, but most of these differences are partly explained by starting glucose, diabetes phenotype, medication status, and cohort composition. Therefore, these subgroup figures are best used to guide future stratified validation, not to make biological claims.
 
 % ── Overall kernel ────────────────────────────────────────────────────────────
 
@@ -35,7 +38,8 @@ within-group numeric range is also shown.
   }
   \label{fig:ex_kernel_overall}
 \end{figure}
-
+Glucose does not fluctuate randomly around the exercise onset. Instead, there is a coordinated drop after the refined onset, with a lowest point occurring after the start of the wearable defined episode and then a rebound. This supports the detector as identifying physiologically meaningful activity periods rather than arbitrary wearable noise.
+However the aligned curve is vulnerable to confounding by baseline glucose, time of day, meals close to exercise, and medication status. The decrease may partly reflect regression to the mean, especially because people with higher glucose at onset have more room to decrease. Therefore, Figure 34 is best described as a descriptive response kernel: it gives the observed shape and timing of glucose around detected exercise-like episodes, but it does not identify what would have happened under a formal do-exercise intervention.
 % ── Cadence × strain heatmap ─────────────────────────────────────────────────
 
 \subsection{Cadence and Strain Heterogeneity}
@@ -57,7 +61,11 @@ within-group numeric range is also shown.
   }
   \label{fig:ex_cadence_strain}
 \end{figure}
+The dataset is numerically dominated by slow-walk and walk episodes. Brisk-walk and run-like categories are sparse, and some cells are suppressed because they do not meet the minimum sample size rule. This already shapes the interpretation: the exercise analysis is primarily an ambulatory, low to moderate activity analysis. It is not a robust analysis of running or high cadence exercise.
 
+The centre panel shows the observed glucose change at 60 minutes. The largest decrease appears in the walk/moderate and walk/vigorous cells, rather than in the sparse brisk walk cells. This suggests that the post exercise glucose drop is not controlled by cadence alone. A moderate walking bout can be more glucose relevant than a higher cadence episode if it is longer, more sustained, or occurs at a higher starting glucose level.
+
+The right panel compares observed glucose with the frozen model prediction at 60 minutes. Negative values mean that observed glucose is below what the frozen model predicted, so the model overestimates glucose after the episode. The walk/vigorous cell shows the strongest negative residual, indicating that the frozen model under-represents the glucose-lowering pattern in this subgroup. The most informative cells are those where both movement and strain are substantial, but the sparse high-cadence cells mean that conclusions about running-like activity remain unsupported.
 % ── Glycemic stratum ──────────────────────────────────────────────────────────
 
 \subsection{Glycemic Stratum}
@@ -76,6 +84,9 @@ within-group numeric range is also shown.
   }
   \label{fig:ex_glycemic}
 \end{figure}
+The insulin-dependent group has wider uncertainty and should be interpreted with the most caution. This is expected because insulin timing and insulin-on-board are not available in AI-READI. 
+The healthy and prediabetes groups show smoother average trajectories, while the T2D oral/non-insulin group appears more variable. This variability may reflect higher baseline glucose, greater glycemic instability, or medication-related heterogeneity.
+
 
 % ── Baseline glucose ──────────────────────────────────────────────────────────
 
@@ -95,7 +106,11 @@ within-group numeric range is also shown.
   }
   \label{fig:ex_baseline_glucose}
 \end{figure}
+The figure shows that baseline glucose at exercise onset strongly structures the observed response. The left panel plots ($\Delta G$) by baseline glucose bin. Low baseline glucose bins show little drop and may even rebound upward later in the window. Higher baseline bins show much larger decreases. The 160–200 mg/dL and 200–300 mg/dL groups show the strongest downward trajectories. This is clinically intuitive because high starting glucose leaves more room for glucose to fall, while low starting glucose is constrained by physiological and behavioral safety limits.
 
+The centre panel confirms that even after the drop, high-baseline groups often remain at higher absolute glucose than lower-baseline groups. This means that a large negative ($\Delta G$) does not necessarily imply hypoglycemia. A participant starting above 200 mg/dL can drop substantially and still remain in or above the target range.
+
+This baseline dependence may reflect true physiology, but it can also reflect regression to the mean and selection. If episodes are selected during periods of high glucose, later values may decrease even without exercise. This is why baseline glucose should be treated as a key matching variable in any natural-experiment analysis and as a safety gate in any planning response. It also explains why a single average exercise response is misleading: the expected observed trajectory depends strongly on where glucose starts.
 % ── Continuous quartile subgroups ─────────────────────────────────────────────
 
 \subsection{Anthropometric and Metabolic Quartile Subgroups}
@@ -120,6 +135,8 @@ range (with unit), episode count~(\emph{n}), and participant count~(\emph{p}).
   }
   \label{fig:ex_age_quartile}
 \end{figure}
+The response curves suggest that age groups differ in both drop magnitude and recovery shape, but the uncertainty bands overlap substantially. The main analytical point is that age alone does not define a clean exercise-response phenotype. Older participants may have different baseline glucose, medication exposure, cardiovascular response, and activity type. Therefore, age should be treated as a stratification variable for robustness and fairness, not as a direct explanatory mechanism.
+Of older or younger quartiles show larger observed-minus-predicted deviations, this would suggest that the frozen model is less calibrated for those age groups after exercise-like activity. The figure should therefore be interpreted as a model-audit tool more than as evidence for an age-specific exercise physiology.
 
 \begin{figure}[H]
   \centering
@@ -130,7 +147,7 @@ range (with unit), episode count~(\emph{n}), and participant count~(\emph{p}).
   }
   \label{fig:ex_bmi_quartile}
 \end{figure}
-
+Higher BMI does not automatically imply a larger or smaller glucose decrease in this descriptive setting. This is expected because BMI is a broad anthropometric marker and does not directly encode insulin sensitivity, fitness, exercise intensity, meal timing, or medication exposure.
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.97\linewidth]{exercise_v2/exercise_response_by_hba1c_quartile.pdf}
@@ -140,6 +157,8 @@ range (with unit), episode count~(\emph{n}), and participant count~(\emph{p}).
   }
   \label{fig:ex_hba1c_quartile}
 \end{figure}
+This is one of the more clinically relevant subgroup plots because HbA1c reflects longer-term glycemic exposure. Higher HbA1c groups tend to have higher baseline glucose and more variable glucose trajectories, so a larger observed drop can partly reflect starting higher rather than having a stronger physiological exercise response.
+The key analytical point is that HbA1c may influence the apparent exercise kernel indirectly through baseline glucose. Therefore, HbA1c subgroup differences should be interpreted together with Figure 37. A high-HbA1c quartile showing a larger drop does not necessarily mean exercise is more effective in that group. It may mean that the group starts higher and has more downward room.
 
 \begin{figure}[H]
   \centering
@@ -161,6 +180,7 @@ range (with unit), episode count~(\emph{n}), and participant count~(\emph{p}).
   }
   \label{fig:ex_resting_hr_quartile}
 \end{figure}
+Figure 42 stratifies by resting heart-rate quartile. Resting HR is relevant because the detector defines strain relative to a participant-specific HR floor. Participants with high resting HR may reach high absolute HR values with different physiological meaning than participants with low resting HR.
 
 \begin{figure}[H]
   \centering
@@ -250,6 +270,10 @@ range (with unit), episode count~(\emph{n}), and participant count~(\emph{p}).
   }
   \label{fig:ex_med_insulin}
 \end{figure}
+This is one of the most important cautionary plots. Insulin users are fewer and have wider uncertainty. More importantly, insulin timing and dose are not observed in AI-READI, so the post-exercise glucose trajectory in insulin users is heavily confounded.
+
+A large drop in insulin users cannot be attributed to exercise alone because unobserved insulin-on-board could be the direct driver. Therefore, insulin-user results should remain descriptive only. The model residual panel is still useful: if the frozen model misses insulin-user trajectories more strongly, this supports the earlier decision to avoid causal interpretation in this subgroup
+
 
 \begin{figure}[H]
   \centering
@@ -261,7 +285,7 @@ range (with unit), episode count~(\emph{n}), and participant count~(\emph{p}).
   }
   \label{fig:ex_med_any_diabetes_drug}
 \end{figure}
-
+The right residual panel is the most relevant for forecasting. If medication users have more negative observed-minus-predicted residuals, the frozen model may overestimate post-exercise glucose in this group. This would support including medication status or medication interactions in an exercise-aware correction model. However, the finding remains descriptive because medication status is confounded with diabetes severity and baseline glucose.
 % ── Residual figures ──────────────────────────────────────────────────────────
 
 \subsection{Frozen-Model Residual Summary}
