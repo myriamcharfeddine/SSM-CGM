@@ -7,7 +7,7 @@
 
 \paragraph{Results.} 194/287 participants (67.6\%) converged within 48h; 93 (32.4\%) did not. Convergence\_hours clusters tightly in a 24--36h band (median 30h, p10 24h, p90 36h; Figure~\ref{fig:pers_conv_hours_hist}) and barely varies by subgroup, but the \emph{rate} of convergence drops with worse metabolic control (75\% to 54\% from lowest to highest HbA1c quartile; 74\% to 60\% by BMI quartile; insulin status has no effect).
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.62\linewidth]{figures/generated/personalization_convergence_hours_hist.png}
 \caption{Convergence\_hours across the full cohort (n=287). Converged participants cluster in a 24--36h band; 93 never stabilize within 48h.}
@@ -16,7 +16,7 @@
 
 Convergence does not imply the correction helps. Among the 194 converged participants, the correction still worsens MAE for the majority under every arm (58--61\% worsened; Figure~\ref{fig:pers_conv_mae_improvement}), and mean improvement is negative across the board (fixed 24h: $-0.191$~mg/dL; fixed 48h: $-0.168$; convergence-based: $-0.148$). The convergence-based window is the least-bad of the three, but only marginally, the more consequential result is that bias-only correction does not hold up at full-cohort scale regardless of window choice; the 15-participant pilot's 8/15 improvement rate was not representative.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.62\linewidth]{figures/generated/personalization_mae_improvement_converged.png}
 \caption{MAE improvement among the 194 converged participants, all three arms. Median and mean sit at or below zero everywhere; diamonds mark the mean.}
@@ -25,7 +25,7 @@ Convergence does not imply the correction helps. Among the 194 converged partici
 
 Cross-tabulating convergence against outcome (Figure~\ref{fig:pers_conv_crosstab}) makes the headline number explicit: the largest group (118, 41.1\%) is participants whose correction \emph{converged but still hurt them}, not participants it helped (76, 26.5\%) or participants who never stabilized (93, 32.4\%). Reporting a single pooled "improves X\% of participants" figure would hide this entirely, convergence is a diagnostic for whether a fitted estimate has stopped moving, not for whether that estimate is worth deploying, and the two should stay reported as separate distributions.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.66\linewidth]{figures/generated/personalization_convergence_outcome_crosstab.png}
 \caption{Convergence status vs.\ MAE outcome under the convergence-based window (n=287).}
