@@ -195,6 +195,23 @@ not a validated personalization signal.
   \label{fig:env_temperature_sensitivity}
 \end{figure}
 
+The notebook also profiled the candidate groups against clinical and medication
+context (Figs.~\ref{fig:env_temperature_clinical_boxplot}--\ref{fig:env_temperature_medication_studygroup}). These plots are descriptive checks on whether the slope-derived groups were clinically interpretable. Positive temperature-sensitive candidates tended to have higher baseline glucose variability and somewhat higher HbA1c and BMI, while the negative and non-sensitive groups were closer together. Medication and study-group composition also differed across candidate groups, especially for insulin use and diabetes-status strata. This pattern makes the candidate labels biologically plausible enough to report, but it also reinforces the main caveat: the labels partly track baseline glycemic instability and cohort composition, and the held-out slope validation was weak. They therefore support hypothesis generation, not a deployed personalization rule.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{generated/env_temp_sensitivity_clinical_boxplot.png}
+  \caption{Clinical variables by exploratory temperature-sensitive candidate group for \texttt{temp\_sd} versus overnight time above 180 mg/dL. The candidate groups show descriptive differences in HbA1c, BMI, baseline glucose variability, and awakening count, but these differences are interpreted as characterization of an unstable slope label rather than validation of a participant phenotype.}
+  \label{fig:env_temperature_clinical_boxplot}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{generated/env_temp_sensitivity_insulin_studygroup_bar.png}
+  \caption{Medication use and study-group composition by exploratory temperature-sensitive candidate group. Insulin use and diabetes-status strata differ across candidate groups, suggesting that apparent temperature sensitivity may partly reflect clinical subgroup structure and baseline glycemic instability.}
+  \label{fig:env_temperature_medication_studygroup}
+\end{figure}
+
 After the humidity association was identified, sleep architecture was added to
 test whether the association was simply explained by measured sleep summaries.
 This was an adjustment and attenuation analysis, not a formal causal mediation
