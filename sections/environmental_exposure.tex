@@ -1,0 +1,328 @@
+% Environmental exposure section.
+% Numbers are sourced from:
+%   notebooks/env_association_study.ipynb
+%   notebooks/env_forecasting_value.ipynb
+%   outputs/env_association_summary.md
+%   outputs/env_forecasting_summary.md
+%   outputs/env_temperature_heterogeneity_summary.md
+%   outputs/env_gate_survivors.csv
+%   outputs/env_residual_head_results.csv
+% No causal claims are made.
+
+\section{Environmental Exposure as an External Modality for Overnight Glucose Stability}
+\label{sec:environmental_exposure}
+
+\subsection{Motivation}
+\label{subsec:env_motivation}
+
+The previous sections evaluate information streams that are internal to the
+forecasting task: CGM history, wearable signals, sleep context, static
+participant descriptors, and derived event states. This section asks whether a
+more external modality, the bedroom environment, contains additional
+information about overnight glucose stability. The analysis was intentionally
+staged. First, environmental exposure was tested as a descriptive candidate
+signal associated with overnight glycemic outcomes. Second, the only surviving
+association was tested for forecasting value using a frozen SSM-CGM residual
+head. This separation matters: an association with a glucose summary does not
+by itself justify adding a new input channel to the forecasting model.
+
+\subsection{Construction of Bedroom-Valid Exposure Nights}
+\label{subsec:env_exposure_nights}
+
+Environmental sensors were fixed in the home, so a raw sensor stream is not
+automatically a personal exposure stream. The primary analysis therefore kept
+only high-confidence bedroom or bedside placements and excluded living room,
+kitchen, office, hallway, and unknown placements. Sleep windows were derived
+from wearable sleep-stage signals, and a valid night required overlapping
+sleep, CGM, and environmental coverage. This filtering was required because a
+fixed home sensor outside the bedroom may measure the dwelling environment
+rather than the participant's sleep exposure.
+
+\begin{table}[H]
+\centering
+\caption{Cohort construction for bedroom environmental exposure analysis.}
+\begin{tabular}{l r}
+\toprule
+Filtering step & Count \\
+\midrule
+Selected AI-READI cohort & 1591 participants \\
+High-confidence bedroom placement & 574 participants \\
+Exposure-valid participants & 566 participants \\
+Exposure-valid nights & 4419 nights \\
+Median nights per participant & 9 nights \\
+Mean nights per participant & 7.81 nights \\
+\bottomrule
+\end{tabular}
+\label{tab:env_cohort_construction}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Environmental exposure and overnight glucose outcome groups.}
+\begin{tabular}{p{0.28\linewidth} p{0.62\linewidth}}
+\toprule
+Group & Variables \\
+\midrule
+Bedroom environment &
+\texttt{temp\_mean} (mean temperature), \texttt{temp\_sd} (temperature
+variability), \texttt{hum\_mean} (mean relative humidity),
+\texttt{pm25\_auc} (integrated particulate exposure),
+\texttt{voc\_spike\_burden}, \texttt{nox\_spike\_burden}, and
+\texttt{night\_light\_exposure}. \\
+Overnight glucose &
+Mean glucose, glucose standard deviation, coefficient of variation, glucose
+range, time below 70 mg/dL, time above 180 mg/dL, wake-to-morning rise, and
+dawn-associated rise. \\
+\bottomrule
+\end{tabular}
+\label{tab:env_exposure_outcome_groups}
+\end{table}
+
+\subsection{Within-Participant Association Model}
+\label{subsec:env_association_model}
+
+Each exposure-outcome pair was fit with a within-between mixed-effects model:
+\begin{equation}
+Y_{i,n}
+=
+\beta_W (x_{i,n}-\bar{x}_i)
++
+\beta_B \bar{x}_i
++
+u_i
++
+\epsilon_{i,n},
+\label{eq:env_within_between}
+\end{equation}
+where $Y_{i,n}$ is the glycemic outcome for participant $i$ on night $n$,
+$x_{i,n}$ is the environmental exposure on that night, $\bar{x}_i$ is the
+participant-level mean exposure, $x_{i,n}-\bar{x}_i$ is the within-participant
+exposure deviation, and $u_i$ is a participant random intercept. The
+coefficient $\beta_W$ asks whether the same participant has a different
+overnight glucose outcome on nights when their bedroom environment differs
+from their own usual environment. This target is more appropriate than a simple
+correlation because it reduces confounding by stable participant differences.
+
+Because the grid contained many exposure-outcome pairs, raw $p$-values were not
+used as the decision rule. Benjamini-Hochberg FDR correction was applied across
+the primary exposure-outcome grid, and participant-clustered bootstrap
+confidence intervals were used because one participant can contribute multiple
+nights. A result was considered robust only if the FDR-corrected $q$-value was
+below 0.05, the participant-bootstrap 95\% confidence interval excluded zero,
+and temporal negative controls did not reproduce the association. Shuffled-night
+and time-shift controls are the strongest controls in this setting. Non-bedroom
+and daytime analyses were treated only as specificity checks because personal
+proximity to the sensor is unknown outside bedroom sleep periods.
+
+\subsection{Primary Environmental Association Results}
+\label{subsec:env_primary_results}
+
+Across 56 primary exposure-outcome pairs, the only pair that cleared the gate
+was mean bedroom humidity against overnight glucose range:
+\begin{equation}
+\texttt{hum\_mean} \rightarrow \texttt{overnight\_glucose\_range}.
+\end{equation}
+The within-participant coefficient was $-0.361$ mg/dL per 1 percentage-point
+higher humidity than participant usual (FDR $q=0.0466$; participant-bootstrap
+95\% CI $[-0.600,-0.118]$; 566 participants; 4419 nights). In words, on nights
+when a participant's bedroom humidity was higher than their own average, their
+overnight glucose range tended to be narrower. The effect size is modest: a
+10 percentage-point humidity difference corresponds to approximately
+3.6 mg/dL lower overnight glucose range under the linear model. This is a
+glucose stability association, not evidence for a mean-glucose effect and not a
+causal estimate.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{generated/env_humidity_association.png}
+  \caption{Primary within-participant association between bedroom humidity and
+  overnight glucose range. Higher-than-usual bedroom humidity was associated
+  with a narrower overnight glucose range, and the participant-bootstrap
+  confidence interval excluded zero. Shuffled-night and +24 h shifted exposure
+  assignments attenuated the association and had confidence intervals crossing
+  zero.}
+  \label{fig:env_humidity_association}
+\end{figure}
+
+\subsection{Robustness, Nonlinear, and Heterogeneity Analyses}
+\label{subsec:env_robustness}
+
+The humidity finding passed several follow-up checks. A humidity bounds audit
+found no invalid values outside the plausible 0--100\% range. After trimming
+the most extreme 1\% of within-person humidity deviations, the coefficient
+strengthened from about $-0.361$ to $-0.441$, with the bootstrap confidence
+interval still excluding zero. The real same-night coefficient was not
+reproduced by shuffled-night exposure assignment and was strongly attenuated
+under the +24 h shifted exposure control. The 12 h shift is not emphasized
+because its implementation reproduced the original alignment. Non-bedroom and
+daytime comparisons were used only as supportive specificity checks, not true
+negative controls.
+
+Secondary nonlinear models tested whether temperature or humidity had a hidden
+U-shaped or absolute-deviation relationship:
+\begin{equation}
+Y \sim (x-\bar{x}) + (x-\bar{x})^2 + \bar{x} + u_i + \epsilon,
+\end{equation}
+and
+\begin{equation}
+Y \sim |x-\bar{x}| + \bar{x} + u_i + \epsilon.
+\end{equation}
+Across 48 nonlinear tests, zero were FDR-significant and robust. No quadratic
+or absolute-deviation effect was found for temperature or humidity, supporting
+the simpler linear within-person model for the main humidity result.
+
+Temperature was then evaluated as a possible heterogeneous exposure rather than
+a single cohort-wide effect. The subgroup interaction grid contained 204
+temperature tests; three model-based FDR-significant signals appeared for
+\texttt{temp\_sd} against overnight time above 180 mg/dL, involving insulin
+use, top BMI quartile, and top sleep-fragmentation quartile. All participant
+bootstrap intervals included zero, so these were labeled model-based only and
+not participant-robust. Participant-level temperature slopes were similarly
+exploratory: among 566 participants, 102 were classified as positive
+temperature-sensitive candidates, 102 as negative candidates, 303 as not
+sensitive, and 59 had too few nights. Held-out early/late validation showed
+63\% sign agreement and near-zero slope correlation across 471 participants.
+Temperature therefore remains a hypothesis-generating heterogeneous exposure,
+not a validated personalization signal.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.72\linewidth]{generated/env_temp_sensitivity_shrunk_slope_hist.png}
+  \caption{Exploratory participant-level temperature sensitivity estimates.
+  Candidate positive and negative sensitivity groups were observed, but
+  early-late night validation showed weak reproducibility, so these slopes were
+  not treated as stable personalized phenotypes.}
+  \label{fig:env_temperature_sensitivity}
+\end{figure}
+
+After the humidity association was identified, sleep architecture was added to
+test whether the association was simply explained by measured sleep summaries.
+This was an adjustment and attenuation analysis, not a formal causal mediation
+analysis:
+\begin{equation}
+Y_{i,n}
+=
+\beta_H H^{\mathrm{within}}_{i,n}
++
+\beta_B \bar{H}_i
++
+\theta^\top S_{i,n}
++
+u_i
++
+\epsilon_{i,n},
+\label{eq:env_sleep_adjusted}
+\end{equation}
+where $S_{i,n}$ contains sleep summaries such as sleep duration and
+sleep-stage composition. The humidity coefficient did not shrink toward zero:
+it moved from $-0.361$ before sleep adjustment to $-0.391$ after adjustment,
+and no significant exposure-by-sleep interaction was detected. Thus the
+association was not explained away by measured sleep architecture, while still
+remaining a descriptive association rather than proof of independent sleep
+physiology.
+
+\subsection{From Association to Forecasting Value}
+\label{subsec:env_forecasting_value}
+
+A statistically robust association is not enough to justify increasing the
+SSM-CGM input space. The forecasting analysis therefore froze the base SSM-CGM
+model and tested whether humidity explained residual forecast error. Let the
+frozen model produce
+\begin{equation}
+\hat{y}^{\mathrm{base}}_{i,t+h}.
+\end{equation}
+The residual is
+\begin{equation}
+r_{i,t+h} = y_{i,t+h} - \hat{y}^{\mathrm{base}}_{i,t+h}.
+\end{equation}
+A lightweight residual head was trained as
+\begin{equation}
+\Delta \hat{y}_{i,t+h}
+=
+g_{\phi}
+\left(
+\hat{y}^{\mathrm{base}}_{i,t+h},
+H_{i,n},
+S_{i,n},
+c_{i,t}
+\right),
+\end{equation}
+and the corrected forecast was
+\begin{equation}
+\hat{y}^{\mathrm{corrected}}_{i,t+h}
+=
+\hat{y}^{\mathrm{base}}_{i,t+h}
++
+\Delta \hat{y}_{i,t+h}.
+\end{equation}
+Here $H_{i,n}$ is the night-level humidity feature, $S_{i,n}$ denotes sleep or
+window context, $c_{i,t}$ denotes available base forecast context, and
+$g_{\phi}$ is a lightweight ridge or histogram-gradient residual model. This
+design isolates the incremental value of humidity: any gain must come from
+explaining the frozen base model's remaining error, rather than from full
+retraining, optimization noise, or representation changes.
+
+\begin{table}[H]
+\centering
+\caption{Forecasting-value comparison for humidity residual correction.}
+\begin{tabular}{l l}
+\toprule
+Model & Purpose \\
+\midrule
+Frozen SSM-CGM base & Reference forecast \\
+Base + sleep & Tests sleep-only residual value \\
+Base + humidity & Tests environmental residual value \\
+Base + sleep + humidity & Tests humidity beyond sleep context \\
+Base + shuffled humidity & Negative control for spurious environmental gain \\
+\bottomrule
+\end{tabular}
+\label{tab:env_forecast_models}
+\end{table}
+
+The 30-minute early-wake HGBT residual head was the clearest real-humidity
+case: \texttt{base\_plus\_env} improved MAE by only 0.046 mg/dL on held-out
+participants, with a 95\% confidence interval crossing zero
+($[-0.061,0.155]$ mg/dL). This is more than six times smaller than the
+pre-defined 0.3 mg/dL threshold for a meaningful forecasting gain. It also did
+not beat the corresponding shuffled-night humidity control on the same
+30-minute test endpoint; the shuffled control showed a numerically larger
+0.066 mg/dL gain with a confidence interval also crossing zero. The notebook's
+final decision file selected \texttt{standalone\_attribution\_only}: no tested
+horizon cleared the full candidate gate, and humidity should not be added as an
+SSM-CGM input channel at this time.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{generated/env_forecasting_value.png}
+  \caption{Forecasting-value test for bedroom humidity. Although humidity was
+  associated with overnight glucose range in the association analysis, a
+  residual head using humidity produced only a negligible MAE gain and did not
+  outperform the shuffled-humidity control on the highlighted 30-minute
+  early-wake endpoint.}
+  \label{fig:env_forecasting_value}
+\end{figure}
+
+Several implementation limits are relevant to the forecasting-value test.
+Sections 4--8 of the forecasting notebook used the
+\texttt{experiment\_c\_split\_adapt6h\_seed42} split because a validated dense
+prediction cache was already available, while the association study used the
+\texttt{adapt48h\_seed42} split. The decisive comparison between real humidity
+and shuffled humidity remains internal to the forecasting split. No fresh full
+inference was run; the existing dense forecast cache was filtered and reshaped.
+Only short-horizon residual correction was evaluated, and the 30-minute
+early-wake endpoint was the clearest candidate display. Given the tiny observed
+gain and the failure against shuffled humidity, these deviations are unlikely
+to change the decision, but they constrain the claim.
+
+\subsection{Interpretation and Decision}
+\label{subsec:env_decision}
+
+Together, these analyses separate three levels of evidence. First, bedroom
+humidity showed a statistically robust within-participant association with
+overnight glucose range. Second, this association was not explained away by
+measured sleep architecture and was robust to key temporal controls. Third,
+when tested as an input to a residual forecasting head on top of frozen SSM-CGM
+predictions, humidity produced only a negligible MAE improvement and failed
+against its shuffled-night control. Therefore, humidity is retained as an
+interpretable, attribution-only environmental association, but it is not added
+as an SSM-CGM input channel.
