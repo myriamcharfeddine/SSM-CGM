@@ -1,227 +1,200 @@
-% ─────────────────────────────────────────────────────────────────────────────
+% -----------------------------------------------------------------------------
 % Section: Interpretability
-% Covers (1) base-model modality and temporal-lag attribution and
-%         (2) Study 2 correction-head coefficient profiles and failure-mode
-%             analysis.
-% All numbers read from outputs/study2_interpretability/tables/.
-% None are invented.
-% ─────────────────────────────────────────────────────────────────────────────
-\section{Interpretability: Model Reliance, Failure Modes, and Local Forecast Explanations}
+% Rewritten around two complementary views of model reliance.
+% All figures referenced here already exist in figures/generated/ and
+% report/figures/generated/; no figure generation is required.
+% -----------------------------------------------------------------------------
+\section{Interpretability: Two Views of Model Reliance}
 \label{sec:interp}
 
-\subsection{Motivation}
-\label{subsec:interp_motivation}
+\subsection{Question and Scope}
+\label{subsec:interp_scope}
 
-Understanding which inputs drive the frozen base model and where it fails is
-important for three reasons.
-First, the residual-current target means the model can appear well-calibrated
-simply by tracking recent glucose; it is necessary to verify that it captures
-more than a persistence signal.
-Second, Study~1 (Section~\ref{sec:study1_cf_audit}) established that meal-proxy
-signals have no causal interpretability on AI-READI; the interpretability
-analysis here shows what the model \emph{does} use, not what it should use.
-Third, the Study~2 correction head
-(Section~\ref{subsec:interp_head}) is interpretable by construction: its Ridge
-coefficients directly expose which causal features drive the correction at
-each forecast horizon.
+This section asks a narrow question: \emph{what does the trained AI-READI
+forecasting model rely on?}
+The answer is reported through two complementary views of the same frozen base
+model.
+The first view is \emph{output-level reliance}: how much the 12-step forecast
+changes when a modality is ablated.
+The second view is \emph{state-construction reliance}: how much each modality
+contributes to the recurrent Mamba hidden state $h_t$ before the decoder turns
+that state into a forecast.
+These views answer different scientific questions and should not be collapsed
+into one ranking.
 
-The most defensible interpretability results for this AI-READI run are the
-modality attribution, temporal-lag attribution, failure-mode analysis, and
-the correction-head coefficient profiles.
-The proxy scenario branch is not currently interpretable as a physiological
-what-if mechanism: prediction deltas are near zero, and
-\texttt{predmeal\_flag} is unavailable in the audited future horizon.
-No insulin-on-board equivalent is available in AI-READI, and no insulin
-causal interpretation should be drawn.
+All results in this section use the full held-out AI-READI test split:
+153{,}591 dense anchors sampled at a 15-minute stride across 381
+participant/segment streams from 221 test participants.
+The analysis is not restricted by insulin-status metadata.
+The variable \texttt{med\_insulin} is static therapy metadata, not an observed
+insulin action, so no insulin-on-board or dose-response interpretation is made.
+The meal-proxy channel is retained only as a diagnostic input group; AI-READI
+has no confirmed meal timestamps and no carbohydrate quantities.
 
-All attribution results below are based on leave-one-modality-out ablation
-(global) or MES hidden-attention weights (temporal lag) computed on
-58 test-split triggered anchor windows from non-insulin participants.
-Correction-head interpretability uses the Ridge coefficient tables in
-\texttt{outputs/study2\_interpretability/tables/}.
-No numbers are invented; all values are read from disk artifacts.
-
-% ── Subsection 2: Two views of model reliance ──────────────────────────────────
-
-\subsection{Two Views of Model Reliance}
+\subsection{The Two Reliance Views}
 \label{subsec:interp_two_views}
 
-The base model's reliance on each input modality is measured two structurally
-different ways here, and neither substitutes for the other.
-Leave-one-modality-out (LOMO) ablation (Section~\ref{subsec:interp_lomo})
-measures \emph{output-level reliance}: the mean absolute change in the final
-12-step forecast when a modality is replaced by its population mean.
-It is defined for all 11 modality groups, because every group eventually
-reaches the decoder, whether directly (time/calendar, meal proxy), through
-the decoder's FiLM-modulated static context (static clinical, medication
-metadata, site/cohort), or through the recurrent hidden state (glucose
-history, heart rate/physiology, wearable activity/exercise, sleep, stress,
-data quality/missingness).
-The rigorous joint-group norm (Section~\ref{subsec:interp_h_t}) measures
-\emph{state-construction reliance}: how much each modality's per-feature
-contribution vectors, summed within the group before the norm is taken so
-collinear features are not overcounted, feed the Mamba encoder's hidden
-state $h_t$.
-This second measure is architecturally defined for only 6 of the 11 groups,
-glucose history, heart rate/physiology, wearable activity/exercise, sleep,
-stress, and data quality/missingness, because only those groups pass through
-the streaming encoder's grouped linear fusion into $h_t$.
-Time/calendar and meal proxy feed the horizon decoder directly; static
-clinical, medication metadata, and site/cohort modulate the decoder's
-readout through FiLM scale/shift on the static context.
-Neither pathway has a per-feature contribution vector into $h_t$, so the
-remaining 5 groups are reported in Section~\ref{subsec:interp_lomo} only,
-not as a gap in Section~\ref{subsec:interp_h_t} but as a structural fact
-about which pathway each modality uses.
+\paragraph{View 1: output-level reliance.}
+Leave-one-modality-out (LOMO) ablation measures the mean absolute change in
+the final 12-step forecast when one modality is replaced by its population
+mean.
+This view is defined for all 11 modality groups because every group eventually
+reaches the forecast decoder: glucose history, static clinical metadata,
+site/cohort, time/calendar, data quality/missingness, heart rate/physiology,
+medication metadata, sleep, wearable activity/exercise, stress, and the
+meal-proxy diagnostic channel.
+LOMO therefore answers a direct deployment question: if this information were
+removed or made uninformative, how much would the forecast move?
 
-% ── Subsection 3: Output-level attribution (LOMO, full test split) ────────────
+\paragraph{View 2: state-construction reliance.}
+The rigorous joint-group norm measures how much a modality contributes to the
+Mamba encoder hidden state $h_t$.
+For each group $g$, per-feature contribution vectors $u_f$ are summed first and
+then normed, $\lVert\sum_{f\in g}u_f\rVert$.
+Summing before taking the norm matters because many channels are collinear:
+heart-rate mean/min/max/std and multiple activity-stage indicators can point in
+similar directions in representation space.
+A post-hoc sum of individual norms would double-count those shared directions.
 
-\subsection{Output-Level Attribution (Leave-One-Modality-Out, Full Test Split)}
+The $h_t$ view is available only for the 6 groups that pass through the
+streaming encoder's grouped linear fusion into the recurrent state: glucose
+history, heart rate/physiology, wearable activity/exercise, sleep, stress, and
+data quality/missingness.
+The other 5 groups are not missing from the analysis; they enter the model by
+different architectural paths.
+Time/calendar and meal proxy feed the horizon decoder directly, while static
+clinical metadata, medication metadata, and site/cohort modulate the decoder
+through the static FiLM context.
+Those groups are therefore interpreted through output-level LOMO, not through
+an $h_t$ contribution vector.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{generated/fig_interp_static_pathways_v2.pdf}
+  \caption{%
+    \textbf{Architectural pathways determine which reliance view applies.}
+    Streaming groups build the recurrent hidden state $h_t$ and can be audited
+    with the rigorous joint-group norm.
+    Static/context groups and direct decoder inputs are visible in the
+    output-level LOMO view but do not have a direct contribution vector into
+    $h_t$.%
+  }
+  \label{fig:interp_static_pathways}
+\end{figure}
+
+\subsection{View 1: Output-Level Reliance}
 \label{subsec:interp_lomo}
 
-Table~\ref{tab:interp_lomo_full} reports LOMO ablation on the full held-out
-test split: 153{,}591 dense anchors (15-min stride) across 381
-participant/segment streams, versus the original 58 triggered anchors.
-Attribution is measured as before: the mean absolute change in the 12-step
-forecast when the named modality is replaced by its population mean.
-Unlike the 58-anchor pass, which was restricted to non-insulin participants,
-the full-test-split pass includes all 221 test participants with no
-insulin-status filter, since \texttt{med\_insulin} is a static covariate,
-not a time-varying action, and this attribution measures overall modality
-reliance rather than an insulin-specific audit.
+Table~\ref{tab:interp_lomo_full} and Fig.~\ref{fig:interp_lomo_full} report
+LOMO attribution on the full held-out test split.
+The dominant output-level driver is \textbf{glucose history}: ablating it
+changes the forecast by 5.87~mg/dL on average and accounts for 36.7\% of the
+normalised output-level attribution.
+This is the expected result for a residual-current CGM forecasting model:
+recent glucose contains the strongest information about the next hour.
 
-The ranking is stable across the roughly 2{,}650$\times$ increase in sample
-size.
-\textbf{Glucose history} remains dominant: 37.2\% on 58 anchors versus
-36.7\% on the full split.
-\textbf{Meal proxy (diagnostic only)} holds at 0.0\% on a sample about
-2{,}650$\times$ larger than the original 58 anchors, strengthening the
-Study~1 null: the base model derives no usable signal from the available
-meal-proxy channel regardless of sample size.
-\textbf{Data quality} and \textbf{site/cohort} together account for
-$8.4\% + 9.0\% = 17.4\%$ of output-level influence on the full split (was
-18.7\% under the 58-anchor sample); the order of magnitude and the caution
-are unchanged: these two modalities capture data-collection artefacts and
-recruitment-site effects rather than physiological signals, so the model
-has partially learned non-physiological population structure.
-\textbf{Static clinical} moves from 12.4\% to 14.6\%; \textbf{time/calendar}
-from 7.3\% to 8.5\%; \textbf{heart rate/physiology} from 6.6\% to 7.7\%;
-\textbf{medication metadata} from 5.8\% to 4.4\%; \textbf{sleep} from 4.4\%
-to 4.0\%; \textbf{wearable activity/exercise} from 4.5\% to 3.8\%;
-\textbf{stress} holds at 3.0\%.
-No group changes rank position by more than one place.
+The next largest output-level group is \textbf{static clinical metadata}
+(14.6\%, 2.33~mg/dL).
+This does not mean that static variables cause short-term glucose movement;
+it means the decoder uses phenotype and enrolment context to calibrate the
+mapping from recent dynamics to future glucose.
+\textbf{Site/cohort} (9.0\%) and \textbf{data quality/missingness} (8.4\%)
+together account for 17.4\% of output-level reliance.
+That is useful but also cautionary: part of the forecast depends on collection
+structure, recruitment site, or missingness patterns rather than purely
+physiological variation.
+
+\textbf{Time/calendar} contributes 8.5\%, and \textbf{heart rate/physiology}
+contributes 7.7\%.
+Sleep, wearable activity/exercise, stress, and medication metadata have smaller
+but nonzero output-level effects.
+The \textbf{meal-proxy diagnostic channel} contributes 0.0\%, which is the
+important negative control: under the available AI-READI representation, this
+channel does not move the forecast and should not be interpreted as a meal
+counterfactual mechanism.
 
 \begin{table}[H]
   \centering
   \caption{%
-    \textbf{Output-level modality attribution: original 58-anchor sample
-    versus the full test split.}
-    LOMO ablation, mean absolute change in the 12-step forecast when the
-    modality is replaced by its population mean.
-    Fractions sum to 100\% within each sample.%
+    \textbf{Output-level modality reliance on the full held-out test split.}
+    LOMO ablation measures the mean absolute change in the 12-step forecast
+    when the named modality is replaced by its population mean.
+    Fractions sum to 100\% across the 11 output-visible groups. %
   }
   \label{tab:interp_lomo_full}
   \small
-  \begin{tabular}{lccc}
+  \begin{tabular}{lcc}
     \toprule
-    Modality & Fraction, $n{=}58$ (\%) & Fraction, $n{=}153{,}591$ (\%) & Mean abs.\ change (mg/dL) \\
+    Modality & Mean abs. change (mg/dL) & Fraction (\%) \\
     \midrule
-    Glucose history               & 37.2 & 36.7 & 5.87 \\
-    Static clinical               & 12.4 & 14.6 & 2.33 \\
-    Site / cohort                 &  8.1 &  9.0 & 1.45 \\
-    Time / calendar               &  7.3 &  8.5 & 1.35 \\
-    Data quality / missingness    & 10.6 &  8.4 & 1.34 \\
-    Heart rate / physiology       &  6.6 &  7.7 & 1.23 \\
-    Medication metadata           &  5.8 &  4.4 & 0.70 \\
-    Sleep                         &  4.4 &  4.0 & 0.65 \\
-    Wearable activity / exercise  &  4.5 &  3.8 & 0.61 \\
-    Stress                        &  3.0 &  3.0 & 0.48 \\
-    Meal proxy (diagnostic only)  &  0.0 &  0.0 & 0.00 \\
+    Glucose history               & 5.87 & 36.7 \\
+    Static clinical               & 2.33 & 14.6 \\
+    Site / cohort                 & 1.45 &  9.0 \\
+    Time / calendar               & 1.35 &  8.5 \\
+    Data quality / missingness    & 1.34 &  8.4 \\
+    Heart rate / physiology       & 1.23 &  7.7 \\
+    Medication metadata           & 0.70 &  4.4 \\
+    Sleep                         & 0.65 &  4.0 \\
+    Wearable activity / exercise  & 0.61 &  3.8 \\
+    Stress                        & 0.48 &  3.0 \\
+    Meal proxy (diagnostic only)  & 0.00 &  0.0 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.80\linewidth]{generated/aireadi_interp_lomo_full_attribution.pdf}
+  \includegraphics[width=0.86\linewidth]{generated/aireadi_interp_lomo_full_attribution.pdf}
   \caption{%
-    \textbf{Output-level modality attribution, full test split
+    \textbf{Output-level LOMO attribution on the full held-out test split
     ($n=153{,}591$ anchors).}
-    Bars show mean absolute forecast change when the modality is ablated.
-    Glucose history dominates; meal proxy contributes nothing, matching the
-    58-anchor result at roughly 2{,}650$\times$ the sample size.%
+    Bars show the mean absolute forecast change after ablating each modality.
+    Glucose history dominates, static/context variables calibrate the decoder,
+    and the meal-proxy diagnostic channel has no measurable output-level
+    effect. %
   }
   \label{fig:interp_lomo_full}
 \end{figure}
 
-% ── Subsection 4: State-construction attribution (rigorous h_t joint-group norm) ──
-
-\subsection{State-Construction Attribution (Rigorous Joint-Group Norm)}
+\subsection{View 2: State-Construction Reliance}
 \label{subsec:interp_h_t}
 
-Table~\ref{tab:interp_h_t_rigorous} reports the rigorous joint-group-norm
-attribution $\lVert \sum_{f \in g} u_f \rVert$ onto the Mamba encoder's
-hidden state $h_t$, summing each group's per-feature contribution vectors
-\emph{before} taking the norm so collinear members are not overcounted.
-It is computed over the same 153{,}591-anchor full-test-split sample as
-Section~\ref{subsec:interp_lomo}, restricted to the 6 modality groups that
-reach $h_t$ through the streaming encoder's grouped linear fusion
-(Section~\ref{subsec:interp_two_views}).
+The $h_t$ view changes the interpretation.
+Among the 6 groups that actually enter the streaming recurrent state, glucose
+history is still important but no longer overwhelming.
+The rigorous joint-group norm assigns 21.9\% of state-construction reliance to
+\textbf{glucose history}, 19.4\% to \textbf{heart rate/physiology}, and 18.9\%
+to \textbf{data quality/missingness}.
+\textbf{Sleep} (14.9\%), \textbf{wearable activity/exercise} (13.4\%), and
+\textbf{stress} (11.6\%) make up the remainder.
 
-\textbf{Glucose history} (21.9\%), \textbf{heart rate/physiology} (19.4\%),
-and \textbf{data quality/missingness} (18.9\%) carry comparable weight in
-constructing $h_t$; \textbf{sleep} (14.9\%), \textbf{wearable
-activity/exercise} (13.4\%), and \textbf{stress} (11.6\%) follow.
-This is a materially different picture from output-level LOMO attribution
-among the same 6 groups.
-\textbf{Wearable activity/exercise} carries 13.4\% of $h_t$ construction
-versus 3.8\% of output-level LOMO influence, roughly 3.5$\times$ more
-weight; \textbf{sleep} carries 14.9\% of $h_t$ construction versus 4.0\% of
-LOMO influence, also roughly 3.5$\times$ more.
-Both modalities shape the model's internal memory far more than they shape
-what it ultimately outputs, an asymmetry invisible to output-level ablation
-alone.
-
-Table~\ref{tab:interp_h_t_rigorous} also compares the rigorous joint-group
-norm against a post-hoc sum of individual per-feature attribution norms,
-the naive approach the rigorous method replaces.
-\textbf{Heart rate/physiology} (1.25$\times$), \textbf{data
-quality/missingness} (1.21$\times$), and especially \textbf{wearable
-activity/exercise} (1.54$\times$) are overcounted by the post-hoc sum: these
-groups contain collinear per-feature channels (for example heart-rate
-mean/min/max/std, or multiple activity-stage indicators) whose individual
-norms partially double-count a shared direction in the fused representation.
-Because every group's share is normalised to sum to 100\%, that
-overcounting mechanically inflates the post-hoc share of the collinear
-groups and deflates every other group's apparent share, including glucose
-history's (9.7\% post-hoc versus 21.9\% rigorous).
-Glucose history's absolute joint-group-norm reliance on $h_t$ is unchanged
-between the two computations; only its share of a total inflated by other
-groups' overcounting differs.
+This means the recurrent state is not just a compressed glucose trace.
+It also stores information about physiology, missingness, sleep/activity
+context, and stress-related channels.
+The decoder then decides how much of that internal state should affect the
+final forecast.
+That distinction explains why wearable activity and sleep can matter much more
+for $h_t$ construction than for output-level LOMO: they help build the internal
+state, but the final forecast is still dominated by recent glucose and static
+calibration.
 
 \begin{table}[H]
   \centering
   \caption{%
-    \textbf{State-construction attribution: rigorous joint-group norm on
-    $h_t$ versus post-hoc sum-of-norms and output-level LOMO
-    (full test split, $n{=}153{,}591$ anchors, $h_t$-reachable groups
-    only).}
-    Rigorous: $\lVert\sum_{f \in g} u_f\rVert$, summed before norm.
-    Post-hoc: $\sum_{f \in g}\lVert u_f\rVert$, summed after norm (the
-    naive, collinearity-overcounting approach).
-    Ratio $<1$ means the post-hoc sum \emph{understates} that group's share
-    because other groups' overcounting inflates the shared 100\% total, not
-    that the group's own attribution was undercounted.
-    LOMO output is the same 6 groups' full-test-split fraction from
-    Table~\ref{tab:interp_lomo_full}, renormalised over just these 6
-    $h_t$-reachable groups (not the full 11-group total) so it is
-    comparable to the rigorous and post-hoc columns.%
+    \textbf{State-construction reliance in the recurrent hidden state $h_t$.}
+    Rigorous attribution uses $\lVert\sum_{f \in g}u_f\rVert$, summing each
+    group's contribution vectors before taking the norm.
+    Post-hoc sum uses $\sum_{f \in g}\lVert u_f\rVert$ and is shown only to
+    illustrate collinearity-driven overcounting.
+    The LOMO output column renormalises output-level reliance over the same
+    6 $h_t$-reachable groups. %
   }
   \label{tab:interp_h_t_rigorous}
   \small
+  \setlength{\tabcolsep}{4pt}
   \begin{tabular}{lcccc}
     \toprule
-    Modality ($h_t$-reachable) & Rigorous (\%) & Post-hoc sum (\%) & Post-hoc / rigorous & LOMO output, renorm.\ (\%) \\
+    Modality ($h_t$-reachable) & Rigorous (\%) & Post-hoc sum (\%) & Ratio & LOMO output, renorm. (\%) \\
     \midrule
     Glucose history               & 21.9 &  9.7 & 0.44 & 57.8 \\
     Heart rate / physiology       & 19.4 & 24.2 & 1.25 & 12.1 \\
@@ -235,415 +208,197 @@ groups' overcounting differs.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.80\linewidth]{generated/aireadi_interp_h_t_rigorous.pdf}
+  \includegraphics[width=0.86\linewidth]{generated/aireadi_interp_h_t_rigorous.pdf}
   \caption{%
-    \textbf{State-construction attribution by modality (rigorous joint-group
-    norm on $h_t$, full test split, $h_t$-reachable groups only).}
-    Bars show each group's share of $\lVert\sum_{f\in g} u_f\rVert$ summed
-    over lag and target rows.
-    Time/calendar, static clinical, medication metadata, site/cohort, and
-    meal proxy are not shown: they do not reach $h_t$ in this architecture
-    (Section~\ref{subsec:interp_two_views}) and are reported in
-    Table~\ref{tab:interp_lomo_full} instead.%
+    \textbf{State-construction attribution by modality.}
+    Bars show each $h_t$-reachable group's rigorous joint-group-norm share.
+    Glucose, heart-rate/physiology, and data-quality/missingness carry similar
+    state-construction weight, while sleep, activity, and stress provide
+    additional context that is less visible in output-level ablation. %
   }
   \label{fig:interp_h_t_rigorous}
 \end{figure}
 
-% ── Subsection 5: Temporal lag attribution ────────────────────────────────────
+\subsection{Reconciling the Two Views}
+\label{subsec:interp_reconcile}
 
-\subsection{Temporal Lag Attribution (MES Hidden Attention)}
-\label{subsec:interp_lag}
-
-The Mamba encoder exposes a mixture-of-experts (MES) hidden-attention weight
-over input lags.
-Fig.~\ref{fig:interp_temporal} plots the mean attention weight as a function
-of lag for each modality.
-For glucose history, 79\% of the attention weight falls on lag 0 (current
-glucose; fractional weight 0.206) and lag 5~min (weight 0.145), with
-a long, slowly decaying tail out to $\sim$4~hours.
-This pattern is consistent with Mamba's selective-state design: the recurrent
-state efficiently compresses the recent glucose trajectory, placing the highest
-explicit attention on the most recent observations.
+Fig.~\ref{fig:interp_state_vs_output} places the two reliance views next to
+each other.
+The central finding is an asymmetry between \emph{representation} and
+\emph{forecast movement}.
+Glucose history dominates forecast movement, but the hidden state distributes
+its capacity more evenly across physiological, behavioral, and data-quality
+channels.
+Wearable activity/exercise and sleep are the clearest examples: their
+state-construction shares are roughly 13--15\%, but their output-level LOMO
+shares are only about 4\%.
+The model appears to encode these channels as contextual state information;
+the decoder only lets a smaller part of that context move the final forecast.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\linewidth]{generated/study2_interp_temporal_lag.pdf}
+  \includegraphics[width=0.92\linewidth]{generated/fig_interp_state_vs_output_v2.pdf}
   \caption{%
-    \textbf{Temporal lag attribution by modality (MES hidden attention).}
-    Attention weight versus lookback lag.
-    Glucose history (blue) peaks sharply at lag 0 and lag 5~min, then
-    decays slowly.
-    Other modalities have flatter profiles because they are static or
-    low-frequency inputs.%
+    \textbf{State-construction reliance versus output-level reliance.}
+    The same $h_t$-reachable groups are compared under the rigorous state norm
+    and output-level LOMO attribution.
+    The figure shows that representation importance and forecast sensitivity
+    are not interchangeable: glucose drives the forecast most strongly, while
+    wearable and sleep channels contribute more to the internal state than to
+    immediate output movement. %
   }
-  \label{fig:interp_temporal}
+  \label{fig:interp_state_vs_output}
 \end{figure}
 
-% ── Subsection 6: Correction-head coefficients ────────────────────────────────
-
-\subsection{Correction-Head Coefficient Profiles}
-\label{subsec:interp_head}
-
-The Study~2 final head is a set of 12 per-horizon Ridge regression models
-(separate up- and down-head).
-The Ridge structure makes coefficients directly interpretable as the
-standardised influence of each causal feature on the correction applied
-to the frozen-base median.
-
-\paragraph{Dominant terms.}
-Table~\ref{tab:interp_coef} lists the five largest-magnitude standardised
-coefficients for trigger\_up at five selected horizons.
-At $h=1$ (5~min), \textbf{current residual} $r_t$ has the highest positive
-weight (0.80), reflecting that the immediately available one-step error is
-the strongest signal for short-horizon correction.
-The lagged residuals $r_{t-1}$ and $r_{t-2}$ carry large \emph{negative}
-weights ($-0.66$, $-0.65$): these encode mean reversion -- if the last two
-residuals were also positive (a sustained up-trigger), the expected correction
-is tempered because the base model tends to mean-revert across anchors.
-\textbf{Slope$_{15}$} (15-min glucose rate of change) is the second largest
-positive term at $h=1$ (0.71) and remains in the top~5 at all horizons;
-its importance is consistent with the ablation result that slope+curvature
-is a distinct informative group.
-
-\paragraph{Horizon dependence.}
-Coefficient magnitudes scale roughly linearly with horizon up to $h=6$
-(30~min) and then plateau.
-At $h=6$ and beyond, \textbf{interval width} $w_t$ (the frozen-base
-90th--10th quantile spread) enters the top~5, indicating that the
-correction head uses the model's own uncertainty as a scaling factor for
-large-horizon adjustments.
-\textbf{Current glucose} $G_t$ becomes the fourth-largest term at $h \geq 6$,
-reflecting the mean-reverting nature of glucose dynamics over longer windows.
-
-\paragraph{Up vs down head.}
-Fig.~\ref{fig:interp_head_updown} overlays the standardised coefficients
-of the trigger\_up and trigger\_down heads at $h=1$.
-The largest asymmetry is in $r_{t-1}$: the down-head places a much smaller
-negative weight on $r_{t-1}$ ($-0.034$) than the up-head ($-0.664$),
-because downward triggers tend to be sharper and shorter than upward excursions
-in this dataset.
-Current glucose $G_t$ switches sign between heads: positive for up ($+0.241$)
-and negative for down ($-0.437$), reflecting that hypoglycaemia corrections
-are larger when glucose is already low.
-
-\begin{table}[H]
-  \centering
-  \caption{%
-    \textbf{Top-5 standardised coefficients, trigger\_up head, selected horizons.}
-    All Ridge models use $\ell_2$ regularisation ($\alpha=1$) and
-    StandardScaler-normalised features.
-    Positive: feature increases the correction (raises the forecast);
-    negative: feature decreases it.%
-  }
-  \label{tab:interp_coef}
-  \small
-  \begin{tabular}{lrrrrr}
-    \toprule
-    Feature & $h=1$ (5\,min) & $h=3$ (15\,min) & $h=6$ (30\,min) & $h=9$ (45\,min) & $h=12$ (60\,min) \\
-    \midrule
-    $r_t$              & $+0.80$ & $+1.67$ & $+0.99$  & $+0.86$  & $+0.68$ \\
-    $r_{t-1}$          & $-0.66$ & $-2.09$ & $-3.47$  & $-3.45$  & $-2.87$ \\
-    $r_{t-2}$          & $-0.65$ & $-2.49$ & $-3.67$  & $-3.76$  & $-3.40$ \\
-    slope$_{15}$       & $+0.71$ & $+2.18$ & $+1.96$  & $+1.47$  & $+0.72$ \\
-    interval width     & $+0.48$ & $+1.66$ & $+3.07$  & $+3.27$  & $+2.45$ \\
-    current glucose    & --      & --      & $+1.50$  & $+1.89$  & $+2.09$ \\
-    $z_{t-2}$          & --      & --      & --       & $+1.62$  & $+1.50$ \\
-    \bottomrule
-    \multicolumn{6}{l}{\small ``--'': not in top 5 at that horizon.} \\
-  \end{tabular}
-\end{table}
+The post-hoc comparison in Fig.~\ref{fig:interp_raw_vs_normalized} explains why
+the rigorous group norm is necessary.
+For collinear groups such as heart-rate/physiology and wearable
+activity/exercise, summing individual feature norms after the fact inflates the
+apparent group share.
+The rigorous method avoids this by summing contribution vectors before taking
+the norm.
+This is why glucose history's post-hoc share looks artificially small: its
+absolute contribution is not reduced, but the denominator is inflated by other
+collinear groups.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\linewidth]{generated/study2_interp_head_coef.pdf}
+  \includegraphics[width=0.88\linewidth]{generated/fig_interp_raw_vs_normalized_v2.pdf}
   \caption{%
-    \textbf{Correction-head standardised coefficients across horizons
-            (trigger\_up head).}
-    Each line is a feature; x-axis is forecast horizon (minutes).
-    Residual lags $r_{t-1}$, $r_{t-2}$ carry growing negative weight at
-    longer horizons (mean reversion).
-    Interval width grows positively, acting as a correction scale.%
+    \textbf{Why the rigorous joint-group norm is used.}
+    Ratios above 1 indicate groups whose post-hoc sum-of-norms attribution is
+    inflated by collinearity.
+    The rigorous group norm is the appropriate state-construction measure
+    because it counts shared directions once rather than once per correlated
+    feature. %
   }
-  \label{fig:interp_head_coef}
+  \label{fig:interp_raw_vs_normalized}
+\end{figure}
+
+\subsection{Interpreting Non-Glucose Reliance}
+\label{subsec:interp_non_glucose}
+
+The non-glucose reliance results are important because they separate useful
+context from potential shortcuts.
+Heart-rate/physiology, sleep, activity, stress, and data-quality channels all
+help construct $h_t$.
+That does not imply that each channel has a large independent causal effect on
+next-hour glucose.
+It means the model has learned to encode these channels as part of the current
+state from which the forecast is decoded.
+
+The wearable subgroup figure shows that the activity/sleep block is not a
+single opaque signal.
+The model distributes state reliance across activity intensity, sleep-stage,
+and data-quality-related channels.
+This supports the interpretation that the recurrent state stores behavioral
+context, not just CGM history.
+At the same time, the data-quality detail figure shows why this must be read
+cautiously: missingness and quality indicators are useful to the model but may
+reflect device wear, site workflow, or participant adherence rather than
+physiology.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{generated/fig_interp_wearable_subgroups_v2.pdf}
+  \caption{%
+    \textbf{Wearable and data-quality subgroup contributions to $h_t$.}
+    The recurrent state uses several behavioral and quality-related channels
+    rather than a single activity proxy.
+    This is evidence of contextual state encoding, not by itself evidence of a
+    causal activity effect. %
+  }
+  \label{fig:interp_wearable_subgroups}
 \end{figure}
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.72\linewidth]{generated/study2_interp_head_up_down.pdf}
+  \includegraphics[width=0.95\linewidth]{generated/fig_interp_data_quality_detail_v2.pdf}
   \caption{%
-    \textbf{Up-head vs down-head standardised coefficients at $h=1$ (5\,min).}
-    Most features have the same sign in both heads.
-    Key asymmetries: $r_{t-1}$ is strongly negative for up, near-zero for down;
-    current glucose is positive for up, negative for down.%
+    \textbf{Data-quality and missingness detail.}
+    Data-quality channels contribute to both state construction and output
+    behavior.
+    This improves prediction but also flags a deployment concern: the model may
+    partially exploit measurement process, device coverage, or site-specific
+    missingness structure. %
   }
-  \label{fig:interp_head_updown}
+  \label{fig:interp_data_quality_detail}
 \end{figure}
 
-% ── Subsection 7: Failure-mode analysis ──────────────────────────────────────
+\subsection{Hidden-State Sanity Checks}
+\label{subsec:interp_hidden_state_checks}
 
-\subsection{Failure-Mode Analysis}
-\label{subsec:interp_failure}
-
-Fig.~\ref{fig:interp_failure} and Table~\ref{tab:interp_failure} show
-correction gain (base MAE $-$ corrected MAE, mg/dL) broken down by
-conditioning dimensions on the test split (39{,}698 triggered anchors,
-204 participants).
-All CIs are participant-clustered.
-
-\paragraph{By trigger direction.}
-Trigger-up windows gain $+0.305$~mg/dL on average; trigger-down windows
-gain only $+0.026$~mg/dL.
-The asymmetry is consistent with the coefficient analysis: the up-head
-is better calibrated to the dominant pattern in this non-insulin dataset,
-where upward glucose excursions are both more frequent and larger.
-
-\paragraph{By residual magnitude.}
-The correction head is most valuable when the base model's one-step error
-is large.
-Residuals in $[10,20]$~mg/dL gain $+0.937$~mg/dL; residuals $>20$~mg/dL
-gain $+0.995$~mg/dL.
-One category is harmful: residuals $< -20$~mg/dL lose $-0.603$~mg/dL
-(77 anchors, 50 participants).
-This is the head's primary failure mode: extreme downward surprises where
-the base model underestimated a rapid drop are over-corrected in the
-negative direction.
-
-\paragraph{By interval width.}
-Quartile Q4 of the frozen-base uncertainty interval (widest, highest
-uncertainty) gains $+0.435$~mg/dL; Q1 (narrowest) gains $-0.022$~mg/dL
-(essentially zero, slight harm).
-The head should not be applied, or should be penalised, at very narrow
-prediction intervals where the base model is already confident.
-
-\paragraph{By slope.}
-Fast-rising glucose ($> 2$~mg/dL/min) gains $+0.590$~mg/dL; flat windows
-gain only $+0.024$~mg/dL; mild-down windows gain $-0.001$~mg/dL.
-The head adds the most value during active glucose rises and is nearly
-neutral during stable glucose.
-
-\paragraph{By study group.}
-Healthy participants gain $-0.019$~mg/dL (negligible, essentially no
-correction benefit).
-Oral-medication-controlled participants gain $+0.442$~mg/dL; insulin-dependent
-participants gain $+0.434$~mg/dL (8 participants, 1{,}498 anchors -- interpret
-with caution due to the small participant count).
-The pattern is consistent: the correction head is most useful where the
-base model is most challenged -- non-healthy participants with more variable
-glucose dynamics.
-
-\begin{table}[H]
-  \centering
-  \caption{%
-    \textbf{Failure-mode analysis: correction gain by dimension (test split).}
-    Gain $=$ base MAE $-$ corrected MAE (mg/dL); positive $=$ improvement.
-    Rows marked * are cases where the correction head is harmful.%
-  }
-  \label{tab:interp_failure}
-  \small
-  \setlength{\tabcolsep}{4pt}
-  \begin{tabular}{llcccc}
-    \toprule
-    Dimension & Level & $n$ & Base MAE & Head MAE & Gain \\
-    \midrule
-    \multirow{2}{*}{Trigger direction}
-      & trigger\_up         & 21{,}123 & 12.432 & 12.127 & $+0.305$ \\
-      & trigger\_down       & 18{,}575 & 10.189 & 10.163 & $+0.026$ \\
-    \midrule
-    \multirow{5}{*}{Residual $r_t$}
-      & $(-10, 0)$          & 17{,}674 &  9.847 &  9.824 & $+0.023$ \\
-      & $(0, 10)$           & 19{,}344 & 11.596 & 11.349 & $+0.247$ \\
-      & $(10, 20)$          &  1{,}674 & 21.400 & 20.464 & $+0.937$ \\
-      & $> 20$              &     105  & 23.564 & 22.569 & $+0.995$ \\
-      & $< -20$ *           &      77  & 21.139 & 21.742 & $-0.603$ \\
-    \midrule
-    \multirow{4}{*}{Interval width}
-      & Q1 (narrow) *       &  9{,}925 &  5.040 &  5.062 & $-0.022$ \\
-      & Q2                  &  9{,}924 &  9.848 &  9.758 & $+0.090$ \\
-      & Q3                  &  9{,}924 & 13.175 & 12.980 & $+0.194$ \\
-      & Q4 (wide)           &  9{,}925 & 17.468 & 17.033 & $+0.435$ \\
-    \midrule
-    \multirow{4}{*}{Slope$_{15}$}
-      & fast\_up ($>$2 mg/dL/min) & 3{,}231 & 20.572 & 19.982 & $+0.590$ \\
-      & up                  &  5{,}862 & 15.851 & 15.417 & $+0.434$ \\
-      & mild\_up            & 10{,}187 &  9.019 &  8.841 & $+0.179$ \\
-      & flat                &  2{,}886 &  5.935 &  5.911 & $+0.024$ \\
-      & mild\_down *        &  9{,}196 &  8.107 &  8.108 & $-0.001$ \\
-      & fast\_down ($<-2$)  &  2{,}399 & 15.702 & 15.575 & $+0.127$ \\
-    \midrule
-    \multirow{2}{*}{Event proxy}
-      & event-enriched      & 14{,}505 & 14.355 & 13.941 & $+0.415$ \\
-      & unmatched control   & 25{,}193 &  9.671 &  9.635 & $+0.036$ \\
-    \midrule
-    \multirow{4}{*}{Study group}
-      & healthy *           & 15{,}131 & 10.104 & 10.123 & $-0.019$ \\
-      & pre-diabetes        & 10{,}462 & 11.046 & 10.952 & $+0.094$ \\
-      & oral medication     & 12{,}607 & 13.119 & 12.676 & $+0.442$ \\
-      & insulin-dependent   &  1{,}498 & 12.038 & 11.603 & $+0.434$ \\
-    \bottomrule
-    \multicolumn{6}{l}{\small * Cases where the correction head is slightly harmful.} \\
-    \multicolumn{6}{l}{\small Insulin-dependent: only 8 participants; interpret with caution.} \\
-  \end{tabular}
-\end{table}
+The probe figures ask whether $h_t$ contains clinically meaningful state
+information after the streaming encoder has fused the input groups.
+The regression probes show that the hidden state carries strong information
+about current glucose and short-term glucose dynamics.
+The classification probes show separability for categorical state targets, but
+these should be interpreted as representation diagnostics rather than as
+standalone clinical classifiers.
+The PCA view provides a simple geometric check: the first principal component
+of $h_t$ tracks current glucose strongly (correlation 0.821), indicating that
+current glycemic state is a dominant axis of the learned representation.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\linewidth]{generated/study2_interp_failure_gain.pdf}
+  \includegraphics[width=0.95\linewidth]{generated/fig_ht_probe_regression_v2.pdf}
   \caption{%
-    \textbf{Correction gain (base MAE $-$ head MAE) by conditioning dimension.}
-    Positive values (blue) indicate windows where the rich head improves over
-    the frozen base; negative values (red) indicate slight harm.
-    The head is most valuable for large positive residuals, wide uncertainty
-    intervals, fast-rising glucose, and non-healthy study groups.
-    It is slightly harmful for extreme negative residuals ($< -20$ mg/dL),
-    narrow prediction intervals (Q1), and healthy participants.%
+    \textbf{Hidden-state regression probes.}
+    Probe performance indicates that $h_t$ contains recoverable information
+    about current glucose and short-term dynamic state, consistent with the
+    reliance results above. %
   }
-  \label{fig:interp_failure}
-\end{figure}
-
-% ── Subsection 8: Local episode panels ───────────────────────────────────────
-
-\subsection{Local Episode Panels}
-\label{subsec:interp_episodes}
-
-Figs.~\ref{fig:interp_ep1}--\ref{fig:interp_ep4} show individual test-split
-trigger episodes with base and corrected forecasts, observed glucose, and
-correction-head feature contributions.
-Because exact local modality attribution requires repeated model runs on a
-single participant stream, the right-side bar charts show Ridge coefficient
-contributions (feature value $\times$ raw-scale coefficient), labelled
-``what drove this correction''.
-
-The four episodes cover: a trigger-up event-proxy case (participant 4286,
-anchor 1172), an unmatched-control trigger-up case (participant 4317,
-anchor 1076), a trigger-down case (participant 4531, anchor 103), and a
-second trigger-up event-proxy case (participant 7690, anchor 448).
-None of these panels should be interpreted as evidence that the head
-detects confirmed physiological events.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=\linewidth]{generated/study2_local_ep_4286_1172.pdf}
-  \caption{%
-    \textbf{Local episode: participant 4286, anchor 1172 (trigger-up, event proxy).}
-    Left: glucose history (240~min look-back), base forecast interval,
-    corrected forecast, and observed future glucose.
-    Vertical line: trigger time.
-    Right: correction-head feature contributions at this anchor.
-    The correction raises the median forecast upward in response to the
-    current positive residual and positive 15-min slope.%
-  }
-  \label{fig:interp_ep1}
+  \label{fig:interp_probe_regression}
 \end{figure}
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\linewidth]{generated/study2_local_ep_4317_1076.pdf}
+  \includegraphics[width=0.95\linewidth]{generated/fig_ht_probe_classification_v2.pdf}
   \caption{%
-    \textbf{Local episode: participant 4317, anchor 1076 (trigger-up, unmatched control).}
-    Glucose is below 130~mg/dL at trigger time, so this anchor does not qualify
-    as an event-proxy window.
-    The correction is smaller in magnitude, consistent with the lower
-    mean residual.%
+    \textbf{Hidden-state classification probes.}
+    Classification probes test whether categorical state information is encoded
+    in $h_t$.
+    These are representation checks, not deployment classifiers. %
   }
-  \label{fig:interp_ep2}
+  \label{fig:interp_probe_classification}
 \end{figure}
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\linewidth]{generated/study2_local_ep_4531_103.pdf}
+  \includegraphics[width=0.78\linewidth]{generated/fig_ht_pca_current_glucose_v2.pdf}
   \caption{%
-    \textbf{Local episode: participant 4531, anchor 103 (trigger-down).}
-    A sustained negative residual triggers the down-head.
-    The corrected forecast shifts downward; the dominant contribution
-    is the current residual $r_t$ (large negative) and slope$_{15}$ (negative).%
+    \textbf{PCA projection of $h_t$ colored by current glucose.}
+    The first principal component is strongly aligned with current glucose
+    (correlation 0.821; PC1 variance 28.0\%, PC2 variance 16.6\%), confirming
+    that glycemic state is a major organizing direction of the hidden state. %
   }
-  \label{fig:interp_ep3}
+  \label{fig:interp_pca}
 \end{figure}
 
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=\linewidth]{generated/study2_local_ep_7690_448.pdf}
-  \caption{%
-    \textbf{Local episode: participant 7690, anchor 448 (trigger-up, event proxy).}
-    A second event-proxy trigger-up example.
-    The corrected forecast tracks observed glucose more closely than the
-    frozen base, driven by the interval width and current glucose terms.%
-  }
-  \label{fig:interp_ep4}
-\end{figure}
-
-\begin{table}[H]
-  \centering
-  \caption{%
-    \textbf{I-T4: Local episode summary.}
-    The four illustrated episodes (test split, non-insulin).
-    ``Event proxy'' column: whether the anchor qualifies as event-enriched
-    per Equation~\eqref{eq:s2_proxy}.
-    Base MAE and head MAE are per-episode means over the 12 forecast steps.
-    Correction-head features are weighted by standardised coefficient magnitude
-    at $h=1$ (5~min); top feature listed.
-    AI-READI contains no confirmed meal timestamps; event-proxy status is a
-    glucose-level proxy only.%
-  }
-  \label{tab:interp_episodes}
-  \small
-  \setlength{\tabcolsep}{4pt}
-  \begin{tabular}{lllcccc}
-    \toprule
-    Participant & Anchor & Direction & Event proxy & Base MAE & Head MAE & Top feature \\
-    \midrule
-    4286 & 1172 & trigger\_up   & yes & -- & -- & $r_t$ \\
-    4317 & 1076 & trigger\_up   & no  & -- & -- & $r_t$ \\
-    4531 &  103 & trigger\_down & --  & -- & -- & $r_t$ (neg.) \\
-    7690 &  448 & trigger\_up   & yes & -- & -- & interval width \\
-    \bottomrule
-    \multicolumn{7}{l}{\small MAE rows: per-episode values not pre-computed in artifact; ``--'' indicates not available.} \\
-    \multicolumn{7}{l}{\small Event proxy: glucose-level proxy; not confirmed meal occurrence.} \\
-  \end{tabular}
-\end{table}
-
-% ── Subsection 9: Limitations ────────────────────────────────────────────────
-
-\subsection{Limitations of the Interpretability Analysis}
+\subsection{Interpretation and Limitations}
 \label{subsec:interp_limitations}
 
-\paragraph{Attribution sample size.}
-The global modality attribution is based on 58 test-split triggered anchor
-windows.
-While 58 anchors span all 204 non-insulin test participants, the sample is small
-relative to the full 39{,}698 triggered test anchor set.
-Aggregate ablation results are directionally reliable but individual modality
-fractions carry uncertainty.
+The two-view analysis supports four conclusions.
+First, the forecast is primarily driven by glucose history, as it should be for
+short-horizon CGM prediction.
+Second, the hidden state is more distributed than the output attribution: it
+stores physiology, activity/sleep context, stress, and data-quality structure
+in addition to glucose history.
+Third, data-quality and site/cohort reliance are predictive but not purely
+physiological; they should be audited before deployment across new sites or
+new device workflows.
+Fourth, the meal-proxy diagnostic channel has no measurable output-level
+influence in this run, so the AI-READI model should not be described as having
+learned an interpretable meal counterfactual.
 
-\paragraph{MES attention interpretation.}
-The temporal lag attribution uses hidden-attention weights from a specific Mamba
-encoder head (head 0).
-These weights reflect the model's information routing, not necessarily the
-biological salience of each lag.
-They should not be over-interpreted as evidence that, for example,
-glucose at 60-minute lookback is physiologically unimportant.
-
-\paragraph{Local attribution proxy.}
-Local episode panels (Figs.~\ref{fig:interp_ep1}--\ref{fig:interp_ep4}) use
-Ridge coefficient contributions (feature value times raw-scale coefficient)
-as a proxy for local modality attribution.
-Exact local modality attribution for the base model would require repeated
-forward passes with modality ablation on each episode individually.
-The coefficient proxy is interpretable but does not separate base-model
-reliance from correction-head decisions.
-
-\paragraph{Meal proxy attribution.}
-The 0.0\% attributed influence for the meal proxy channel is consistent with
-Study~1 but does not prove that the base model has never used meal-proxy
-information during training.
-The channel may have carried transient signal during early training epochs
-before the dead-channel failure was identified and corrected
-(Section~\ref{sec:study1_cf_audit}).
-
-\paragraph{Site and phenotype effects.}
-Modality attribution aggregates across three clinical sites (UAB, UCSD, UW)
-and four study groups.
-Site/cohort accounts for 8.1\% of influence; this may reflect domain-shift
-learning rather than physiological generalisation.
-Per-site attribution profiles are not currently available but would be
-informative for deployment to new sites.
+The main limitation is that these are reliance measures, not causal effect
+estimates.
+LOMO ablation asks how the trained model's output changes under a replacement
+operation; it does not identify what would happen biologically if a modality
+changed in the real world.
+The $h_t$ joint-group norm asks how the encoder constructs its internal state;
+it does not say which input would independently change the forecast under an
+intervention.
+Together, the two views give a defensible account of model reliance: what moves
+the output, what builds the hidden state, and where predictive performance may
+be borrowing from non-physiological structure.

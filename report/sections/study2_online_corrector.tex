@@ -298,15 +298,13 @@ the target glucose population changes substantially.
 \subsection{Link to Interpretability}
 \label{subsec:study2_link_interp}
 
-The correction head's 19-feature linear Ridge structure is interpretable
+The correction head's 19-feature linear Ridge structure remains interpretable
 by design: each coefficient $b_{h,j}$ quantifies how much feature $j$ shifts
 the horizon-$h$ prediction.
-Section~\ref{sec:interp} presents coefficient profiles for the final head
-across horizons; the dominant terms are $r_t$ (current residual),
-$r_{t-1}$ (one-lag residual), and slope$_{15}$ (short-term glucose trend),
-consistent with the ablation findings here.
-The correlation between coefficient magnitude and ablation-group gain
-provides a cross-check that the Ridge head has not learned spurious patterns.
+The dedicated interpretability section now focuses on the frozen base model's
+two reliance views: output-level LOMO attribution and rigorous hidden-state
+construction through $h_t$.
+This separates base-model reliance from the Study~2 correction-head audit.
 
 % ── Figures ──────────────────────────────────────────────────────────────────
 
