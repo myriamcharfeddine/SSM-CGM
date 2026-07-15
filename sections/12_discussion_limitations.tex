@@ -50,10 +50,10 @@ causal information orthogonal to the CGM slope.
 \label{subsec:discuss_interp}
 
 Section~\ref{sec:interp} shows that the frozen base model relies primarily on
-recent glucose history (37\% of ablation-attributed influence), with secondary
-contributions from static clinical metadata, data-quality indicators, and
-site/cohort effects.
-Data quality and site/cohort together account for 18.7\% of model influence --
+recent glucose history (36.7\% of ablation-attributed influence, full test
+split), with secondary contributions from static clinical metadata,
+data-quality indicators, and site/cohort effects.
+Data quality and site/cohort together account for 17.4\% of model influence --
 a caution that the model has partially learned non-physiological population structure.
 Meal proxy registers 0.0\% attributed influence, consistent with Study~1.
 
@@ -107,8 +107,8 @@ The correction head is slightly harmful for extreme downward residuals
 (Q1); these cases should be handled with explicit abstention in deployment.
 
 \paragraph{Interpretability scope.}
-The global modality attribution is based on 58 test-split triggered anchor
-windows; the sample is representative but limited.
+The global modality attribution is based on 153{,}591 dense anchors across
+381 test streams (221 participants), the full held-out test split.
 The MES attention analysis reflects a specific head in the Mamba architecture
 and should not be over-interpreted as biological salience.
 Local episode panels (Section~\ref{subsec:interp_episodes}) use Ridge

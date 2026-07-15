@@ -10,6 +10,125 @@ CUDA accelerates training through the Mamba/Triton scan backend. The streaming r
 
 \GeneratedAppendixFigures
 
+\section{Interpretability: Supplementary Figures}
+\label{app:interp_supplementary}
+
+These figures support Section~\ref{sec:interp} but were moved out of the
+main text to keep the chapter to one figure per scientific question. All
+source CSVs and captions match the corresponding main-text discussion.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/fig_interp_static_sensitivity_curves_v2.pdf}
+  \caption{%
+    \textbf{Static sensitivity curves: HbA1c, BMI, age, baseline serum
+    glucose, resting heart rate.}
+    Model-sensitivity magnitude at observed train-split quantiles
+    Q10/Q25/Q50/Q75/Q90, by forecast horizon. Magnitude only; no directional
+    claim. Source: \texttt{static\_sensitivity\_curves\_v2.csv}.
+    See Section~\ref{subsec:interp_static_curves}.%
+  }
+  \label{fig:interp_static_curves}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/fig_interp_static_domains_v2.pdf}
+  \caption{%
+    \textbf{Static domain LOMO ablation, full test split.}
+    Source: \texttt{static\_domain\_lomo\_v2.csv}.
+    See Section~\ref{subsec:interp_static_domains}.%
+  }
+  \label{fig:interp_static_domains}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/fig_interp_raw_vs_normalized_v2.pdf}
+  \caption{%
+    \textbf{Post-hoc raw norm ratio $R_g$, all six $h_t$-reachable groups.}
+    Source: \texttt{group\_overall\_compare\_v2.csv}.
+    See Section~\ref{subsec:interp_posthoc_inflation}.%
+  }
+  \label{fig:interp_raw_vs_normalized}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/fig_interp_wearable_subgroups_v2.pdf}
+  \caption{%
+    \textbf{Top 20 wearable and data-quality subgroups, rigorous state
+    construction share.}
+    Source: \texttt{wearable\_subgroup\_ht\_v2.csv}.
+    See Section~\ref{subsec:interp_wearable_detail}.%
+  }
+  \label{fig:interp_wearable_subgroups}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.75\linewidth]{generated/fig_interp_sleep_stages_v2.pdf}
+  \caption{%
+    \textbf{Sleep-stage contribution to state construction, within the sleep
+    group.}
+    Source: \texttt{wearable\_subgroup\_ht\_v2.csv}.
+    See Section~\ref{subsec:interp_wearable_detail}.%
+  }
+  \label{fig:interp_sleep_stages}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/fig_interp_data_quality_detail_v2.pdf}
+  \caption{%
+    \textbf{Data-quality/missingness subgroup detail: sensitivity, state
+    construction, predictive usefulness.}
+    Source: \texttt{data\_quality\_detail\_v2.csv}.
+    See Section~\ref{subsec:interp_data_quality_shortcut}.%
+  }
+  \label{fig:interp_data_quality_detail}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/fig_ht_probe_regression_v2.pdf}
+  \caption{%
+    \textbf{Full hidden-state probe panel, regression targets.}
+    Source: \texttt{ht\_probe\_metrics\_v2.csv}.
+    See Section~\ref{subsec:interp_probes}.%
+  }
+  \label{fig:interp_probe_regression}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{generated/fig_ht_probe_classification_v2.pdf}
+  \caption{%
+    \textbf{Full hidden-state probe panel, classification targets: AUROC,
+    AUPRC, macro-F1 shown separately.}
+    Source: \texttt{ht\_probe\_metrics\_v2.csv}.
+    See Section~\ref{subsec:interp_probes}.%
+  }
+  \label{fig:interp_probe_classification}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.75\linewidth]{generated/fig_ht_pca_current_glucose_v2.pdf}
+  \caption{%
+    \textbf{PCA projection of $h_t$, colored by current glucose.}
+    PC1 correlation with current glucose 0.821; PC1 variance 28.0\%, PC2
+    16.6\%. Source: \texttt{ht\_probe\_export\_v2.npz}.
+    See Section~\ref{subsec:interp_probes}.%
+  }
+  \label{fig:interp_pca}
+\end{figure}
+
+% fig:interp_case_stable_sleep (now a main-text figure) and
+% fig:interp_case_high_humidity (appendix figure, fuller caption) are defined
+% directly inside subsec:interp_case_studies in sections/10_interpretability.tex,
+% not here, to avoid duplicate labels; see the case-studies revision.
+
 \section{Generated Results Snapshot}
 \label{app:snapshot}
 
