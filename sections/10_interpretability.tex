@@ -85,7 +85,7 @@ an $h_t$ contribution vector.
 \subsection{View 1: Output-Level Reliance}
 \label{subsec:interp_lomo}
 
-Table~\ref{tab:interp_lomo_full} and Fig.~\ref{fig:interp_lomo_full} report
+Table~\ref{tab:interp_lomo_full} and Figs.~\ref{fig:interp_lomo_full}--\ref{fig:interp_global_lomo_v2} report
 LOMO attribution on the full held-out test split.
 The dominant output-level driver is \textbf{glucose history}: ablating it
 changes the forecast by 5.87~mg/dL on average and accounts for 36.7\% of the
@@ -144,16 +144,41 @@ counterfactual mechanism.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.86\linewidth]{generated/aireadi_interp_lomo_full_attribution.pdf}
+  \includegraphics[width=0.86\linewidth]{generated/fig_interpret_lomo_full_attribution_v2.pdf}
   \caption{%
     \textbf{Output-level LOMO attribution on the full held-out test split
     ($n=153{,}591$ anchors).}
-    Bars show the mean absolute forecast change after ablating each modality.
-    Glucose history dominates, static/context variables calibrate the decoder,
-    and the meal-proxy diagnostic channel has no measurable output-level
-    effect. %
+    Bars show the mean absolute forecast change after replacing each modality
+    by its population mean.
+    Glucose history is the largest output-moving input group, followed by
+    static clinical context, site/cohort, time/calendar, data quality, and
+    heart-rate/physiology.
+    The meal-proxy diagnostic channel has no measurable output-level effect. %
   }
   \label{fig:interp_lomo_full}
+\end{figure}
+
+Fig.~\ref{fig:interp_global_lomo_v2} shows the same output-level result as a
+global modality-reliance summary.
+This view is useful because it places physiological and non-physiological
+inputs on the same scale.
+The important interpretation is not only that glucose dominates, but also that
+site/cohort and data-quality signals remain visible in the output.
+Those groups may improve forecast accuracy, but they also indicate possible
+reliance on recruitment and measurement structure.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.86\linewidth]{generated/fig_interp_global_lomo_v2.png}
+  \caption{%
+    \textbf{Global output-level modality reliance (LOMO, v2).}
+    The global LOMO view confirms that forecast movement is dominated by
+    glucose history, with secondary reliance on static/context and
+    measurement-process variables.
+    This is the main output-facing interpretation of what the deployed forecast
+    is sensitive to. %
+  }
+  \label{fig:interp_global_lomo_v2}
 \end{figure}
 
 \subsection{View 2: State-Construction Reliance}
@@ -208,15 +233,41 @@ calibration.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.86\linewidth]{generated/aireadi_interp_h_t_rigorous.pdf}
+  \includegraphics[width=0.86\linewidth]{generated/fig_interpret_importance_grouped_aireadi_v2.pdf}
   \caption{%
-    \textbf{State-construction attribution by modality.}
+    \textbf{Grouped state-construction importance (AI-READI v2).}
     Bars show each $h_t$-reachable group's rigorous joint-group-norm share.
     Glucose, heart-rate/physiology, and data-quality/missingness carry similar
     state-construction weight, while sleep, activity, and stress provide
     additional context that is less visible in output-level ablation. %
   }
   \label{fig:interp_h_t_rigorous}
+\end{figure}
+
+The grouped-importance view shows that the recurrent state is distributed
+rather than glucose-only.
+Fig.~\ref{fig:interp_global_ht_v2} presents the same state-construction audit
+as a global $h_t$ reliance summary.
+This second view is the representation-facing counterpart to the LOMO figures:
+it asks what information the encoder stores, not what immediately moves the
+decoder output.
+The difference between these views is scientifically important because wearable,
+sleep, stress, and data-quality channels can shape the internal state even when
+the final forecast remains most sensitive to recent glucose.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.86\linewidth]{generated/fig_interp_global_ht_v2.pdf}
+  \caption{%
+    \textbf{Global state-construction reliance in $h_t$ (v2).}
+    This figure summarises which streaming modality groups build the Mamba
+    hidden state.
+    Compared with output-level LOMO, the $h_t$ view gives more weight to
+    physiology, data quality, sleep, activity, and stress, showing that the
+    encoder stores contextual state information even when the decoder output is
+    glucose-dominated. %
+  }
+  \label{fig:interp_global_ht_v2}
 \end{figure}
 
 \subsection{Reconciling the Two Views}
