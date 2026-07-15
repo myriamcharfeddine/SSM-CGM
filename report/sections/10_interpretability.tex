@@ -41,74 +41,215 @@ Correction-head interpretability uses the Ridge coefficient tables in
 \texttt{outputs/study2\_interpretability/tables/}.
 No numbers are invented; all values are read from disk artifacts.
 
-% ── Subsection 1: Base-model modality attribution ─────────────────────────────
+% ── Subsection 2: Two views of model reliance ──────────────────────────────────
 
-\subsection{Base-Model Input Attribution by Modality}
-\label{subsec:interp_modality}
+\subsection{Two Views of Model Reliance}
+\label{subsec:interp_two_views}
 
-Fig.~\ref{fig:interp_global} summarises global modality attribution computed
-via leave-one-modality-out ablation on 58 test-split triggered anchor windows
-(non-insulin participants).
-Attribution is measured as the mean absolute change in the 12-step forecast
-when the named modality is replaced by its population mean.
+The base model's reliance on each input modality is measured two structurally
+different ways here, and neither substitutes for the other.
+Leave-one-modality-out (LOMO) ablation (Section~\ref{subsec:interp_lomo})
+measures \emph{output-level reliance}: the mean absolute change in the final
+12-step forecast when a modality is replaced by its population mean.
+It is defined for all 11 modality groups, because every group eventually
+reaches the decoder, whether directly (time/calendar, meal proxy), through
+the decoder's FiLM-modulated static context (static clinical, medication
+metadata, site/cohort), or through the recurrent hidden state (glucose
+history, heart rate/physiology, wearable activity/exercise, sleep, stress,
+data quality/missingness).
+The rigorous joint-group norm (Section~\ref{subsec:interp_h_t}) measures
+\emph{state-construction reliance}: how much each modality's per-feature
+contribution vectors, summed within the group before the norm is taken so
+collinear features are not overcounted, feed the Mamba encoder's hidden
+state $h_t$.
+This second measure is architecturally defined for only 6 of the 11 groups,
+glucose history, heart rate/physiology, wearable activity/exercise, sleep,
+stress, and data quality/missingness, because only those groups pass through
+the streaming encoder's grouped linear fusion into $h_t$.
+Time/calendar and meal proxy feed the horizon decoder directly; static
+clinical, medication metadata, and site/cohort modulate the decoder's
+readout through FiLM scale/shift on the static context.
+Neither pathway has a per-feature contribution vector into $h_t$, so the
+remaining 5 groups are reported in Section~\ref{subsec:interp_lomo} only,
+not as a gap in Section~\ref{subsec:interp_h_t} but as a structural fact
+about which pathway each modality uses.
 
-Table~\ref{tab:interp_modality} lists fractions of total influence.
-\textbf{Glucose history} accounts for 37.2\% of input influence -- the dominant
-single modality, as expected for a CGM-forecasting task.
-\textbf{Static clinical} (age, BMI, study-enrolment variables) adds 12.4\%;
-\textbf{data quality} and \textbf{site/cohort} together add 18.7\%.
-The latter two modalities capture data-collection artefacts and recruitment-site
-effects rather than physiological signals; their combined 18.7\% influence is
-a caution that the base model has partially learned non-physiological
-population structure.
-\textbf{Heart rate}, \textbf{medication metadata}, and \textbf{steps/activity}
-each contribute 4--7\%.
-\textbf{Meal proxy (diagnostic only)} registers 0.0\%: consistent with Study~1,
-the base model derives no usable signal from the available meal-proxy channel.
+% ── Subsection 3: Output-level attribution (LOMO, full test split) ────────────
+
+\subsection{Output-Level Attribution (Leave-One-Modality-Out, Full Test Split)}
+\label{subsec:interp_lomo}
+
+Table~\ref{tab:interp_lomo_full} reports LOMO ablation on the full held-out
+test split: 153{,}591 dense anchors (15-min stride) across 381
+participant/segment streams, versus the original 58 triggered anchors.
+Attribution is measured as before: the mean absolute change in the 12-step
+forecast when the named modality is replaced by its population mean.
+Unlike the 58-anchor pass, which was restricted to non-insulin participants,
+the full-test-split pass includes all 221 test participants with no
+insulin-status filter, since \texttt{med\_insulin} is a static covariate,
+not a time-varying action, and this attribution measures overall modality
+reliance rather than an insulin-specific audit.
+
+The ranking is stable across the roughly 2{,}650$\times$ increase in sample
+size.
+\textbf{Glucose history} remains dominant: 37.2\% on 58 anchors versus
+36.7\% on the full split.
+\textbf{Meal proxy (diagnostic only)} holds at 0.0\% on a sample about
+2{,}650$\times$ larger than the original 58 anchors, strengthening the
+Study~1 null: the base model derives no usable signal from the available
+meal-proxy channel regardless of sample size.
+\textbf{Data quality} and \textbf{site/cohort} together account for
+$8.4\% + 9.0\% = 17.4\%$ of output-level influence on the full split (was
+18.7\% under the 58-anchor sample); the order of magnitude and the caution
+are unchanged: these two modalities capture data-collection artefacts and
+recruitment-site effects rather than physiological signals, so the model
+has partially learned non-physiological population structure.
+\textbf{Static clinical} moves from 12.4\% to 14.6\%; \textbf{time/calendar}
+from 7.3\% to 8.5\%; \textbf{heart rate/physiology} from 6.6\% to 7.7\%;
+\textbf{medication metadata} from 5.8\% to 4.4\%; \textbf{sleep} from 4.4\%
+to 4.0\%; \textbf{wearable activity/exercise} from 4.5\% to 3.8\%;
+\textbf{stress} holds at 3.0\%.
+No group changes rank position by more than one place.
 
 \begin{table}[H]
   \centering
   \caption{%
-    \textbf{Base-model global modality attribution (test split, 58 anchors).}
-    Mean absolute change in 12-step forecast when the modality is ablated.
-    Fractions sum to 100\%.
-    ``Data quality'' and ``site/cohort'' capture collection artefacts and
-    site effects, not physiological variation.%
+    \textbf{Output-level modality attribution: original 58-anchor sample
+    versus the full test split.}
+    LOMO ablation, mean absolute change in the 12-step forecast when the
+    modality is replaced by its population mean.
+    Fractions sum to 100\% within each sample.%
   }
-  \label{tab:interp_modality}
+  \label{tab:interp_lomo_full}
   \small
-  \begin{tabular}{lcc}
+  \begin{tabular}{lccc}
     \toprule
-    Modality & Mean abs.\ change (mg/dL) & Fraction (\%) \\
+    Modality & Fraction, $n{=}58$ (\%) & Fraction, $n{=}153{,}591$ (\%) & Mean abs.\ change (mg/dL) \\
     \midrule
-    Glucose history              & 6.56 & 37.2 \\
-    Static clinical              & 2.19 & 12.4 \\
-    Data quality                 & 1.87 & 10.6 \\
-    Site / cohort                & 1.42 &  8.1 \\
-    Time / calendar              & 1.28 &  7.3 \\
-    Heart rate                   & 1.16 &  6.6 \\
-    Medication metadata          & 1.03 &  5.8 \\
-    Steps / activity             & 0.80 &  4.5 \\
-    Sleep                        & 0.77 &  4.4 \\
-    Stress                       & 0.53 &  3.0 \\
-    Meal proxy (diagnostic only) & 0.00 &  0.0 \\
+    Glucose history               & 37.2 & 36.7 & 5.87 \\
+    Static clinical               & 12.4 & 14.6 & 2.33 \\
+    Site / cohort                 &  8.1 &  9.0 & 1.45 \\
+    Time / calendar               &  7.3 &  8.5 & 1.35 \\
+    Data quality / missingness    & 10.6 &  8.4 & 1.34 \\
+    Heart rate / physiology       &  6.6 &  7.7 & 1.23 \\
+    Medication metadata           &  5.8 &  4.4 & 0.70 \\
+    Sleep                         &  4.4 &  4.0 & 0.65 \\
+    Wearable activity / exercise  &  4.5 &  3.8 & 0.61 \\
+    Stress                        &  3.0 &  3.0 & 0.48 \\
+    Meal proxy (diagnostic only)  &  0.0 &  0.0 & 0.00 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.80\linewidth]{generated/study2_interp_global_attribution.pdf}
+  \includegraphics[width=0.80\linewidth]{generated/aireadi_interp_lomo_full_attribution.pdf}
   \caption{%
-    \textbf{Global modality attribution (base model, test split).}
+    \textbf{Output-level modality attribution, full test split
+    ($n=153{,}591$ anchors).}
     Bars show mean absolute forecast change when the modality is ablated.
-    Glucose history dominates; meal proxy contributes nothing,
-    consistent with Study~1 findings.%
+    Glucose history dominates; meal proxy contributes nothing, matching the
+    58-anchor result at roughly 2{,}650$\times$ the sample size.%
   }
-  \label{fig:interp_global}
+  \label{fig:interp_lomo_full}
 \end{figure}
 
-% ── Subsection 2: Temporal lag attribution ────────────────────────────────────
+% ── Subsection 4: State-construction attribution (rigorous h_t joint-group norm) ──
+
+\subsection{State-Construction Attribution (Rigorous Joint-Group Norm)}
+\label{subsec:interp_h_t}
+
+Table~\ref{tab:interp_h_t_rigorous} reports the rigorous joint-group-norm
+attribution $\lVert \sum_{f \in g} u_f \rVert$ onto the Mamba encoder's
+hidden state $h_t$, summing each group's per-feature contribution vectors
+\emph{before} taking the norm so collinear members are not overcounted.
+It is computed over the same 153{,}591-anchor full-test-split sample as
+Section~\ref{subsec:interp_lomo}, restricted to the 6 modality groups that
+reach $h_t$ through the streaming encoder's grouped linear fusion
+(Section~\ref{subsec:interp_two_views}).
+
+\textbf{Glucose history} (21.9\%), \textbf{heart rate/physiology} (19.4\%),
+and \textbf{data quality/missingness} (18.9\%) carry comparable weight in
+constructing $h_t$; \textbf{sleep} (14.9\%), \textbf{wearable
+activity/exercise} (13.4\%), and \textbf{stress} (11.6\%) follow.
+This is a materially different picture from output-level LOMO attribution
+among the same 6 groups.
+\textbf{Wearable activity/exercise} carries 13.4\% of $h_t$ construction
+versus 3.8\% of output-level LOMO influence, roughly 3.5$\times$ more
+weight; \textbf{sleep} carries 14.9\% of $h_t$ construction versus 4.0\% of
+LOMO influence, also roughly 3.5$\times$ more.
+Both modalities shape the model's internal memory far more than they shape
+what it ultimately outputs, an asymmetry invisible to output-level ablation
+alone.
+
+Table~\ref{tab:interp_h_t_rigorous} also compares the rigorous joint-group
+norm against a post-hoc sum of individual per-feature attribution norms,
+the naive approach the rigorous method replaces.
+\textbf{Heart rate/physiology} (1.25$\times$), \textbf{data
+quality/missingness} (1.21$\times$), and especially \textbf{wearable
+activity/exercise} (1.54$\times$) are overcounted by the post-hoc sum: these
+groups contain collinear per-feature channels (for example heart-rate
+mean/min/max/std, or multiple activity-stage indicators) whose individual
+norms partially double-count a shared direction in the fused representation.
+Because every group's share is normalised to sum to 100\%, that
+overcounting mechanically inflates the post-hoc share of the collinear
+groups and deflates every other group's apparent share, including glucose
+history's (9.7\% post-hoc versus 21.9\% rigorous).
+Glucose history's absolute joint-group-norm reliance on $h_t$ is unchanged
+between the two computations; only its share of a total inflated by other
+groups' overcounting differs.
+
+\begin{table}[H]
+  \centering
+  \caption{%
+    \textbf{State-construction attribution: rigorous joint-group norm on
+    $h_t$ versus post-hoc sum-of-norms and output-level LOMO
+    (full test split, $n{=}153{,}591$ anchors, $h_t$-reachable groups
+    only).}
+    Rigorous: $\lVert\sum_{f \in g} u_f\rVert$, summed before norm.
+    Post-hoc: $\sum_{f \in g}\lVert u_f\rVert$, summed after norm (the
+    naive, collinearity-overcounting approach).
+    Ratio $<1$ means the post-hoc sum \emph{understates} that group's share
+    because other groups' overcounting inflates the shared 100\% total, not
+    that the group's own attribution was undercounted.
+    LOMO output is the same 6 groups' full-test-split fraction from
+    Table~\ref{tab:interp_lomo_full}, renormalised over just these 6
+    $h_t$-reachable groups (not the full 11-group total) so it is
+    comparable to the rigorous and post-hoc columns.%
+  }
+  \label{tab:interp_h_t_rigorous}
+  \small
+  \begin{tabular}{lcccc}
+    \toprule
+    Modality ($h_t$-reachable) & Rigorous (\%) & Post-hoc sum (\%) & Post-hoc / rigorous & LOMO output, renorm.\ (\%) \\
+    \midrule
+    Glucose history               & 21.9 &  9.7 & 0.44 & 57.8 \\
+    Heart rate / physiology       & 19.4 & 24.2 & 1.25 & 12.1 \\
+    Data quality / missingness    & 18.9 & 22.9 & 1.21 & 13.2 \\
+    Sleep                         & 14.9 & 10.1 & 0.68 &  6.4 \\
+    Wearable activity / exercise  & 13.4 & 20.5 & 1.54 &  6.0 \\
+    Stress                        & 11.6 & 12.5 & 1.08 &  4.7 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.80\linewidth]{generated/aireadi_interp_h_t_rigorous.pdf}
+  \caption{%
+    \textbf{State-construction attribution by modality (rigorous joint-group
+    norm on $h_t$, full test split, $h_t$-reachable groups only).}
+    Bars show each group's share of $\lVert\sum_{f\in g} u_f\rVert$ summed
+    over lag and target rows.
+    Time/calendar, static clinical, medication metadata, site/cohort, and
+    meal proxy are not shown: they do not reach $h_t$ in this architecture
+    (Section~\ref{subsec:interp_two_views}) and are reported in
+    Table~\ref{tab:interp_lomo_full} instead.%
+  }
+  \label{fig:interp_h_t_rigorous}
+\end{figure}
+
+% ── Subsection 5: Temporal lag attribution ────────────────────────────────────
 
 \subsection{Temporal Lag Attribution (MES Hidden Attention)}
 \label{subsec:interp_lag}
@@ -138,7 +279,7 @@ explicit attention on the most recent observations.
   \label{fig:interp_temporal}
 \end{figure}
 
-% ── Subsection 3: Correction-head coefficients ────────────────────────────────
+% ── Subsection 6: Correction-head coefficients ────────────────────────────────
 
 \subsection{Correction-Head Coefficient Profiles}
 \label{subsec:interp_head}
@@ -238,7 +379,7 @@ are larger when glucose is already low.
   \label{fig:interp_head_updown}
 \end{figure}
 
-% ── Subsection 4: Failure-mode analysis ──────────────────────────────────────
+% ── Subsection 7: Failure-mode analysis ──────────────────────────────────────
 
 \subsection{Failure-Mode Analysis}
 \label{subsec:interp_failure}
@@ -359,7 +500,7 @@ glucose dynamics.
   \label{fig:interp_failure}
 \end{figure}
 
-% ── Subsection 5: Local episode panels ───────────────────────────────────────
+% ── Subsection 8: Local episode panels ───────────────────────────────────────
 
 \subsection{Local Episode Panels}
 \label{subsec:interp_episodes}
@@ -461,7 +602,7 @@ detects confirmed physiological events.
   \end{tabular}
 \end{table}
 
-% ── Subsection 6: Limitations ────────────────────────────────────────────────
+% ── Subsection 9: Limitations ────────────────────────────────────────────────
 
 \subsection{Limitations of the Interpretability Analysis}
 \label{subsec:interp_limitations}
