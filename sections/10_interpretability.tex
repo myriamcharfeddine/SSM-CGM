@@ -4,41 +4,34 @@
 % All figures referenced here already exist in figures/generated/ and
 % report/figures/generated/; no figure generation is required.
 % -----------------------------------------------------------------------------
-\section{Interpretability: Two Views of Model Reliance}
+\section{Interpretability}
 \label{sec:interp}
 
 \subsection{Question and Scope}
 \label{subsec:interp_scope}
 
-This section asks a narrow question: \emph{what does the trained AI-READI
+In this section we are looking at \emph{what does the trained AI-READI
 forecasting model rely on?}
-The answer is reported through two complementary views of the same frozen base
-model.
-The first view is \emph{output-level reliance}: how much the 12-step forecast
+The answer is reported through two views:
+The first view is \emph{output level reliance}: how much the 12 step forecast
 changes when a modality is ablated.
-The second view is \emph{state-construction reliance}: how much each modality
+The second view is \emph{state construction reliance}: how much each modality
 contributes to the recurrent Mamba hidden state $h_t$ before the decoder turns
 that state into a forecast.
-These views answer different scientific questions and should not be collapsed
-into one ranking.
 
-All results in this section use the full held-out AI-READI test split:
-153{,}591 dense anchors sampled at a 15-minute stride across 381
+All results in this section use the full held out AI-READI test split:
+153{,}591 anchors sampled at a 15 minute stride across 381
 participant/segment streams from 221 test participants.
-The analysis is not restricted by insulin-status metadata.
-The variable \texttt{med\_insulin} is static therapy metadata, not an observed
-insulin action, so no insulin-on-board or dose-response interpretation is made.
-The meal-proxy channel is retained only as a diagnostic input group; AI-READI
-has no confirmed meal timestamps and no carbohydrate quantities.
+The analysis is not restricted by insulin status metadata.
 
-\subsection{The Two Reliance Views}
+\subsection{Interpretability based on two directions}
 \label{subsec:interp_two_views}
 
-\paragraph{View 1: output-level reliance.}
-Leave-one-modality-out (LOMO) ablation measures the mean absolute change in
-the final 12-step forecast when one modality is replaced by its population
+\paragraph{Interpretability view 1: output level reliance.}
+Leaveone-modality-out (LOMO) ablation measures the mean absolute change in
+the final 12step forecast when one modality is replaced by its population
 mean.
-This view is defined for all 11 modality groups because every group eventually
+This view is defined for all 11 modality groups because every group 
 reaches the forecast decoder: glucose history, static clinical metadata,
 site/cohort, time/calendar, data quality/missingness, heart rate/physiology,
 medication metadata, sleep, wearable activity/exercise, stress, and the
@@ -46,28 +39,23 @@ meal-proxy diagnostic channel.
 LOMO therefore answers a direct deployment question: if this information were
 removed or made uninformative, how much would the forecast move?
 
-\paragraph{View 2: state-construction reliance.}
-The rigorous joint-group norm measures how much a modality contributes to the
+\paragraph{Interpretability view 2: state construction reliance.}
+The joint group norm measures how much a modality contributes to the
 Mamba encoder hidden state $h_t$.
-For each group $g$, per-feature contribution vectors $u_f$ are summed first and
+For each group $g$, per feature contribution vectors $u_f$ are summed first and
 then normed, $\lVert\sum_{f\in g}u_f\rVert$.
-Summing before taking the norm matters because many channels are collinear:
+Summing before taking the norm matters because many features are collinear:
 heart-rate mean/min/max/std and multiple activity-stage indicators can point in
-similar directions in representation space.
-A post-hoc sum of individual norms would double-count those shared directions.
+similar directions in representation space. The sum of individual norms would have double counted those shared directions.
 
-The $h_t$ view is available only for the 6 groups that pass through the
+The $h_t$ interpretability is available only for the 6 groups that pass through the
 streaming encoder's grouped linear fusion into the recurrent state: glucose
 history, heart rate/physiology, wearable activity/exercise, sleep, stress, and
-data quality/missingness.
-The other 5 groups are not missing from the analysis; they enter the model by
-different architectural paths.
+data quality/missingness. 
 Time/calendar and meal proxy feed the horizon decoder directly, while static
 clinical metadata, medication metadata, and site/cohort modulate the decoder
 through the static FiLM context.
-Those groups are therefore interpreted through output-level LOMO, not through
-an $h_t$ contribution vector.
-
+Those groups are therefore interpreted through LOMO interpretability.
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.95\linewidth]{generated/fig_interp_static_pathways_v2.pdf}
