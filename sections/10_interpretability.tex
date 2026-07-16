@@ -28,7 +28,7 @@ The analysis is not restricted by insulin status metadata.
 \label{subsec:interp_two_views}
 
 \paragraph{Interpretability view 1: output level reliance.}
-Leaveone-modality-out (LOMO) ablation measures the mean absolute change in
+Leave-one-modality-out (LOMO) ablation measures the mean absolute change in
 the final 12step forecast when one modality is replaced by its population
 mean.
 This view is defined for all 11 modality groups because every group 
@@ -56,24 +56,12 @@ Time/calendar and meal proxy feed the horizon decoder directly, while static
 clinical metadata, medication metadata, and site/cohort modulate the decoder
 through the static FiLM context.
 Those groups are therefore interpreted through LOMO interpretability.
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=0.95\linewidth]{generated/fig_interp_static_pathways_v2.pdf}
-  \caption{%
-    \textbf{Architectural pathways determine which reliance view applies.}
-    Streaming groups build the recurrent hidden state $h_t$ and can be audited
-    with the rigorous joint-group norm.
-    Static/context groups and direct decoder inputs are visible in the
-    output-level LOMO view but do not have a direct contribution vector into
-    $h_t$.%
-  }
-  \label{fig:interp_static_pathways}
-\end{figure}
+
 
 \subsection{View 1: Output-Level Reliance}
 \label{subsec:interp_lomo}
 
-Table~\ref{tab:interp_lomo_full} and Figs.~\ref{fig:interp_lomo_full}--\ref{fig:interp_global_lomo_v2} report
+Table~\ref{tab:interp_lomo_full} and Figure ~\ref{fig:interp_lomo_full} report
 LOMO attribution on the full held-out test split.
 The dominant output-level driver is \textbf{glucose history}: ablating it
 changes the forecast by 5.87~mg/dL on average and accounts for 36.7\% of the
@@ -146,28 +134,14 @@ counterfactual mechanism.
   \label{fig:interp_lomo_full}
 \end{figure}
 
-Fig.~\ref{fig:interp_global_lomo_v2} shows the same output-level result as a
-global modality-reliance summary.
-This view is useful because it places physiological and non-physiological
+Fig.~\ref{fig:interp_lomo_full} places physiological and non-physiological
 inputs on the same scale.
 The important interpretation is not only that glucose dominates, but also that
 site/cohort and data-quality signals remain visible in the output.
 Those groups may improve forecast accuracy, but they also indicate possible
 reliance on recruitment and measurement structure.
 
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=0.86\linewidth]{generated/fig_interp_global_lomo_v2.png}
-  \caption{%
-    \textbf{Global output-level modality reliance (LOMO, v2).}
-    The global LOMO view confirms that forecast movement is dominated by
-    glucose history, with secondary reliance on static/context and
-    measurement-process variables.
-    This is the main output-facing interpretation of what the deployed forecast
-    is sensitive to. %
-  }
-  \label{fig:interp_global_lomo_v2}
-\end{figure}
+
 
 \subsection{View 2: State-Construction Reliance}
 \label{subsec:interp_h_t}
@@ -234,8 +208,7 @@ calibration.
 
 The grouped-importance view shows that the recurrent state is distributed
 rather than glucose-only.
-Fig.~\ref{fig:interp_global_ht_v2} presents the same state-construction audit
-as a global $h_t$ reliance summary.
+
 This second view is the representation-facing counterpart to the LOMO figures:
 it asks what information the encoder stores, not what immediately moves the
 decoder output.
@@ -243,18 +216,7 @@ The difference between these views is scientifically important because wearable,
 sleep, stress, and data-quality channels can shape the internal state even when
 the final forecast remains most sensitive to recent glucose.
 
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=0.86\linewidth]{generated/fig_interp_global_ht_v2.pdf}
-  \caption{%
-    \textbf{Global state-construction reliance in $h_t$ (v2).}
-    This figure summarises which streaming modality groups build the Mamba
-    hidden state.
-    Compared with output-level LOMO, the $h_t$ view gives more weight to
-    physiology, data quality, sleep, activity, and stress, showing that the
-    encoder stores contextual state information even when the decoder output is
-    glucose-dominated. %
-  }
+
   \label{fig:interp_global_ht_v2}
 \end{figure}
 
@@ -313,6 +275,348 @@ collinear groups.
   }
   \label{fig:interp_raw_vs_normalized}
 \end{figure}
+
+% ============================================================
+\subsection{Static Clinical Interpretation}
+\label{subsec:interp_static_clinical}
+% ============================================================
+
+Static covariates describe participant-level characteristics that remain fixed
+over the monitored time series, including glycaemic status, baseline clinical
+measurements, demographics, medication metadata, and clinical site. Their role
+differs from that of streaming variables. Historical glucose and wearable
+measurements describe the participant's current state, whereas static variables
+provide a participant-specific context for interpreting those measurements.
+
+The static analysis addresses three separate questions:
+
+\begin{enumerate}
+    \item How much does each static domain or feature change the final forecast?
+    \item Does this dependence improve held-out predictive performance?
+    \item Through which architectural pathway does the static information affect
+    the model?
+\end{enumerate}
+
+These questions are evaluated separately because a feature can substantially
+change the forecast without improving its accuracy.
+
+% ------------------------------------------------------------
+\subsubsection{Output Sensitivity and Predictive Usefulness}
+\label{subsec:interp_static_output}
+% ------------------------------------------------------------
+
+For a static feature or domain $g$, output sensitivity is measured using
+leave-one-group-out reference ablation. Let
+$\widehat{\mathbf{y}}_i$ denote the original forecast at anchor $i$ and
+$\widehat{\mathbf{y}}_i^{(-g)}$ the forecast obtained after replacing $g$ by
+its training-derived reference representation. The raw sensitivity is
+
+\begin{equation}
+A_g =
+\frac{1}{NH}
+\sum_{i=1}^{N}
+\sum_{h=1}^{H}
+\left|
+\widehat{y}_{i,h}
+-
+\widehat{y}_{i,h}^{(-g)}
+\right|,
+\label{eq:static_lomo_sensitivity}
+\end{equation}
+
+where $A_g$ is expressed in mg/dL. A large value indicates that the trained
+model changes its forecasts when that information is removed. It does not by
+itself indicate that the feature improves accuracy.
+
+Predictive usefulness is evaluated using
+
+\begin{equation}
+\Delta\mathrm{MAE}_g
+=
+\mathrm{MAE}_{-g}
+-
+\mathrm{MAE}_{\mathrm{full}}.
+\label{eq:static_predictive_usefulness}
+\end{equation}
+
+A positive value means that removing the feature worsens held-out MAE and that
+the feature is predictively useful in the frozen model. A value close to zero
+indicates limited incremental predictive value, whereas a negative value means
+that the ablated model performs better. Negative frozen-model ablation results
+do not automatically justify removing a feature, since replacing a feature
+after training is not equivalent to retraining the architecture without it.
+
+At the domain level, glycaemic-severity information produces the largest
+forecast change, followed by demographic information. Medication metadata,
+site/cohort, metabolic laboratory measurements, cardiovascular variables, and
+anthropometric measurements have smaller effects. Domain-level values should be
+interpreted cautiously because the domains contain different numbers of
+features and different degrees of internal correlation.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]
+    {figures/generated/fig_interp_static_domains_v2.pdf}
+    \caption{
+    \textbf{Static-domain output sensitivity.}
+    Bars show the mean absolute change in the 12-step forecast after replacing
+    one static domain by its training-derived reference representation. Error
+    bars show participant-clustered bootstrap confidence intervals. Glycaemic
+    severity and demographics produce the largest output changes. The values
+    measure model reliance in mg/dL and do not represent causal clinical
+    effects or accuracy improvements.
+    }
+    \label{fig:interp_static_domains}
+\end{figure}
+
+The feature-level comparison provides a more precise interpretation of the
+aggregated static-clinical result. Study group, baseline HbA1c, and baseline
+serum glucose are both influential and predictively useful: their removal
+changes the forecast and increases held-out MAE. These variables therefore
+provide participant-level information that is not fully recoverable from the
+recent CGM trajectory alone.
+
+Study group is the strongest individual static feature. This variable
+summarizes broad differences in glycaemic phenotype, including normoglycaemia,
+prediabetes, non-insulin-treated diabetes, and insulin-treated diabetes.
+However, its attribution should not be interpreted as an isolated clinical
+effect because it is correlated with HbA1c, glucose variability, medication
+status, and other participant characteristics.
+
+HbA1c is the most influential continuous clinical measurement. Its positive
+predictive usefulness indicates that long-term glycaemic control helps the
+model adapt near-term forecasts across participants. Baseline serum glucose
+provides an additional, smaller participant-level glycaemic prior.
+
+In contrast, several demographic variables substantially change the forecast
+but provide little or uncertain improvement in MAE. Marital status is a
+particularly clear example of high sensitivity with limited predictive
+usefulness. Race, ethnicity, sex, and site variables also require caution.
+Their influence may reflect population structure, socioeconomic or behavioural
+proxies, clinical-site differences, missingness patterns, or shortcut learning
+rather than robust physiological information.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]
+    {figures/generated/fig_interp_static_features_v2.pdf}
+    \caption{
+    \textbf{Static-feature reliance and predictive usefulness.}
+    Left: raw mean absolute forecast change after reference ablation of each
+    feature or categorical feature block. Right:
+    $\Delta\mathrm{MAE}=\mathrm{MAE}_{-g}-\mathrm{MAE}_{\mathrm{full}}$.
+    Positive values on the right indicate that removing the feature worsens
+    prediction and that the feature is useful in the frozen model. Features may
+    therefore be strongly used without providing a corresponding accuracy
+    benefit. Categorical variables represented by multiple one-hot columns are
+    ablated jointly as conceptual blocks.
+    }
+    \label{fig:interp_static_features}
+\end{figure}
+
+The feature-level results can be summarized into four categories:
+
+\begin{itemize}
+    \item \textbf{Strongly used and useful:}
+    study group, HbA1c, and baseline serum glucose.
+    
+    \item \textbf{Strongly used but weakly useful:}
+    marital status and selected demographic variables.
+    
+    \item \textbf{Neutral or potentially harmful under frozen-model ablation:}
+    selected race/ethnicity blocks, clinical site, C-peptide, and other
+    variables whose confidence intervals include or fall below
+    $\Delta\mathrm{MAE}=0$.
+    
+    \item \textbf{Secondary static variables:}
+    anthropometric, cardiovascular, and lipid measurements with relatively
+    small forecast effects.
+\end{itemize}
+
+These findings motivate retrained ablation experiments rather than immediate
+feature deletion. Protected demographic and site variables should additionally
+be evaluated using conditional permutation or matched ablation within study
+group, HbA1c range, and clinical site.
+
+% ------------------------------------------------------------
+\subsubsection{Static Conditioning Pathways}
+\label{subsec:interp_static_pathways}
+% ------------------------------------------------------------
+
+Output-level ablation establishes that static information changes the
+forecast, but it does not identify where that dependence enters the
+architecture. Static covariates influence the model through several pathways.
+The static representation initializes the participant-specific recurrent state,
+
+\begin{equation}
+h_0 = \psi(e_S),
+\label{eq:static_h0}
+\end{equation}
+
+and conditions the historical representation using feature-wise linear
+modulation,
+
+\begin{equation}
+u_t^{\mathrm{cond}}
+=
+\gamma(e_S)\odot u_t+\beta(e_S),
+\label{eq:static_film}
+\end{equation}
+
+where $\gamma(e_S)$ multiplicatively rescales the dynamic representation and
+$\beta(e_S)$ applies an additive shift.
+
+For each static domain, the pathway analysis replaces that domain by its
+training-derived reference representation and measures the resulting change in
+$h_0$, $\gamma$, $\beta$, and the final forecast. The first three quantities
+are representation-space $L_2$ norms, whereas output sensitivity is expressed
+in mg/dL. Their absolute magnitudes are therefore not directly comparable
+between panels.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]
+    {figures/generated/fig_interp_static_pathways_v2.pdf}
+    \caption{
+    \textbf{Static-domain sensitivity across model-conditioning pathways.}
+    Each panel measures the change produced by replacing one static domain with
+    its training-derived reference representation. From left to right, the
+    panels show sensitivity of the participant-specific initial state $h_0$,
+    the FiLM multiplicative scale $\gamma(S)$, the FiLM additive shift
+    $\beta(S)$, and the final forecast output. Glycaemic-severity and
+    demographic variables have the largest influence across the
+    static-conditioning pathways, indicating that they affect both participant
+    initialization and the processing of subsequent dynamic inputs. The first
+    three panels report representation-space $L_2$ norms, whereas the final
+    panel reports mean absolute forecast change in mg/dL. Magnitudes should
+    therefore be compared across domains within each panel, not directly
+    between panels. These quantities measure model sensitivity and do not
+    represent causal effects.
+    }
+    \label{fig:interp_static_pathways}
+\end{figure}
+
+The pathway ranking is consistent with the output-level analysis. Glycaemic
+severity has the largest effect on the initial state, the additive FiLM shift,
+and the final output. This suggests that glycaemic phenotype establishes a
+participant-specific metabolic baseline that persists throughout the streaming
+forecast.
+
+Demographic information also strongly affects all three static-conditioning
+pathways and is particularly influential in the FiLM scaling pathway. This
+means that demographic variables can change not only the initial participant
+representation but also how subsequent dynamic glucose and wearable signals are
+scaled by the model. This result is important for model auditing because it
+creates a possible mechanism through which protected attributes or correlated
+population structure can influence every later streaming update.
+
+Medication, site/cohort, laboratory, cardiovascular, and anthropometric domains
+have smaller but non-zero pathway sensitivities. Their effects are more
+consistent with secondary participant-level adjustments than with dominant
+short-horizon forecast drivers.
+
+% ------------------------------------------------------------
+\subsubsection{Sensitivity Across Clinical Values and Forecast Horizons}
+\label{subsec:interp_static_curves}
+% ------------------------------------------------------------
+
+For selected continuous static variables, the original value is replaced by
+training-distribution quantiles while all other inputs are held fixed. For
+feature $j$, quantile $q$, and horizon $h$, the magnitude of the resulting
+forecast change is
+
+\begin{equation}
+M_{j,q,h}
+=
+\frac{1}{N}
+\sum_{i=1}^{N}
+\left|
+\widehat{y}_{i,h}
+-
+\widehat{y}_{i,h}
+\left(S_{i,j}=Q_{j,q}\right)
+\right|.
+\label{eq:static_quantile_sensitivity}
+\end{equation}
+
+This experiment evaluates model sensitivity across the observed training
+distribution. It is not a clinical intervention and should not be interpreted
+as the effect of changing HbA1c, BMI, age, or another participant
+characteristic.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]
+    {figures/generated/fig_interp_static_sensitivity_curves_v2.pdf}
+    \caption{
+    \textbf{Static-feature sensitivity across training-distribution quantiles.}
+    Selected continuous variables are replaced by their training-split
+    quantiles, and the resulting mean absolute forecast change is shown at
+    15-, 30-, and 60-minute horizons. Static influence generally increases with
+    forecast horizon. HbA1c has the largest continuous sensitivity, followed by
+    baseline serum glucose, whereas BMI, age, and resting heart rate produce
+    smaller changes. Because the plotted quantity is absolute, the curves show
+    magnitude but not whether a given value raises or lowers the forecast.
+    These are model-sensitivity analyses, not interventions.
+    }
+    \label{fig:interp_static_sensitivity}
+\end{figure}
+
+The horizon dependence is consistent across the selected variables:
+participant-level static information has limited influence at the shortest
+horizons, where the latest CGM reading dominates, but becomes more influential
+towards 60 minutes as the decoder relies more heavily on participant-specific
+priors.
+
+HbA1c produces the largest sensitivity across the tested horizons, reinforcing
+its role as the most important continuous static clinical variable. Baseline
+serum glucose also modifies the longer-horizon prediction, while BMI, age, and
+resting heart rate have smaller effects. The approximately U-shaped magnitude
+curves indicate that replacing a participant's value with an extreme
+population quantile changes the forecast more than replacing it with a typical
+value. Since absolute changes are plotted, this pattern does not establish
+whether low or high values raise the forecast.
+
+% ------------------------------------------------------------
+\subsubsection{Interpretation and Clinical Cautions}
+\label{subsec:interp_static_cautions}
+% ------------------------------------------------------------
+
+The static analysis supports three principal conclusions.
+
+First, static clinical information is not a single homogeneous input block.
+Most of its useful predictive contribution is concentrated in variables that
+describe glycaemic phenotype, particularly study group, HbA1c, and baseline
+serum glucose.
+
+Second, glycaemic-severity variables influence several architectural pathways.
+They affect participant initialization, FiLM conditioning, and the final
+forecast. Their high output reliance is therefore not solely an output-layer
+artefact.
+
+Third, the strong sensitivity to demographic and site variables requires
+additional auditing. High reliance does not guarantee robust predictive value,
+and a variable that improves performance on the current held-out split may
+still reduce fairness or transportability under a new population, site, or
+data-collection protocol.
+
+The results therefore motivate three follow-up analyses:
+
+\begin{enumerate}
+    \item retraining the model without weak or potentially harmful static
+    features;
+    \item conditional demographic and site ablations within matched clinical
+    strata;
+    \item subgroup calibration and error analysis across protected and clinical
+    categories.
+\end{enumerate}
+
+Overall, the model uses static clinical information primarily to construct a
+participant-specific glycaemic prior. This improves forecasting when the static
+variable captures stable metabolic phenotype, but it also creates a pathway
+through which demographic, site, and measurement-process structure can
+influence the prediction.
+
 
 \subsection{Interpreting Non-Glucose Reliance}
 \label{subsec:interp_non_glucose}
@@ -423,9 +727,7 @@ short-horizon CGM prediction.
 Second, the hidden state is more distributed than the output attribution: it
 stores physiology, activity/sleep context, stress, and data-quality structure
 in addition to glucose history.
-Third, data-quality and site/cohort reliance are predictive but not purely
-physiological; they should be audited before deployment across new sites or
-new device workflows.
+Third, Data-quality and site/cohort variables improve prediction on the current held-out cohort, but their contribution may reflect sensor availability, collection procedures, or population differences rather than direct physiological information. Their robustness should therefore be evaluated under unseen sites, devices, and missingness patterns before deployment.
 Fourth, the meal-proxy diagnostic channel has no measurable output-level
 influence in this run, so the AI-READI model should not be described as having
 learned an interpretable meal counterfactual.

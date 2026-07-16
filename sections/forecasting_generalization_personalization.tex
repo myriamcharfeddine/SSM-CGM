@@ -341,6 +341,9 @@ does not use historical information or that the model has definitively been
 shown to be warm-up-free. They establish the narrower result that the original
 warm-up curve was not evidence of personalization.
 
+The two analyses answer different questions and should therefore not be interpreted in the same way. The elapsed-time deployment analysis evaluates forecasts made at progressively later stages after a new participant begins using the system. It reflects the real onboarding experience and answers: How accurate is the model during the first hours or days of use? However, because later cutoffs exclude early anchors and may also exclude shorter or more fragmented recordings, any improvement can result from changes in the evaluated timestamps or participant composition, not necessarily from the model learning the individual. In contrast, the controlled state-reset warm-up experiment evaluates the same participants, the same forecast timestamps, and the same future targets while varying only how much preceding history is used to build the recurrent state. It therefore answers the causal modeling question: Does providing the model with more participant history improve the same forecast? The first analysis is useful for describing expected performance after deployment, whereas the second is required to isolate the specific benefit of accumulated history and demonstrate genuine passive personalization.
+ 
+
 \subsection{Bias-based participant correction}
 \label{subsec:bias_personalization}
 
