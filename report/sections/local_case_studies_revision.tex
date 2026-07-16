@@ -1,0 +1,254 @@
+\subsection{Local Case Studies: From Global Reliance to Individual Forecast Behaviour}
+\label{subsec:interp_local_cases}
+
+Global attribution summarizes average model reliance across the held-out
+cohort, but it does not show how that reliance is expressed in individual
+forecasts. We therefore selected representative local cases to connect the
+forecast trajectory with two complementary interpretability views. The left
+panel evaluates factual forecast behaviour, the centre panel shows which
+historical groups contributed to constructing the streaming state $h_t$, and
+the right panel shows which input groups most strongly affected the final
+output under leave-one-modality-out ablation. These examples are descriptive
+analyses of the trained model and are not estimates of causal physiological
+effects.
+
+The left panel in each case shows historical CGM, the forecast median, the
+10th--90th percentile interval, the observed future trajectory, the forecast
+anchor, and any context annotation such as a sleep window or exercise-detector
+interval. The centre panel reports rigorous hidden-state construction
+attribution, normalized over the six directly decomposable historical groups:
+glucose history, heart rate/physiology, wearable activity/exercise, sleep,
+stress, and data quality/missingness. The right panel reports output-level
+LOMO reliance, normalized over all eleven input groups visible to the forecast
+output. These two percentage scales have different denominators and should not
+be compared as numerical ratios. Their rankings and qualitative patterns can
+be compared: hidden-state attribution shows what builds the representation,
+whereas LOMO shows what changes the output. Neither view proves causal
+importance or establishes that a modality improved the forecast in a specific
+case.
+
+For each case, we ask three questions at the same forecast anchor: whether the
+future glucose trajectory was predicted correctly, which historical modalities
+contributed to constructing $h_t$, and which input groups most strongly changed
+the final forecast output. The selected anchors are fixed artifacts from the
+case-study generation pipeline rather than newly selected examples:
+participant 1302, segment 0, anchor 540 for the exercise case; participant
+7347, segment 1, anchor 1305 for the stable sleep case; and participant 4162,
+segment 0, anchor 651 for the reversal case.
+
+\subsubsection{Exercise-Annotated Forecast-Only Case}
+\label{subsec:interp_case_exercise}
+
+Fig.~\ref{fig:interp_case_exercise} shows an exercise-annotated factual
+forecast. The Study 2 exercise detector was external to the base forecasting
+model. It was used to identify and annotate the walking episode, but the
+detector-active state was not a dedicated input to the displayed forecast.
+Historical steps, heart rate, and related wearable measurements were available
+to the model through the standard wearable and physiology channels. This case
+therefore evaluates the forecast-only pathway, not the exercise counterfactual
+branch. The hatched interval marks an independently detected 70-minute walking
+bout with moderate strain and is displayed for interpretation; it is not a
+forecast input under the checkpoint inspection summarized in
+\texttt{external\_candidate\_check\_v2.csv}.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{generated/fig_case_exercise_v2.pdf}
+    \caption{%
+      \textbf{Exercise-annotated forecast-only case.}
+      The episode was independently identified by the Study 2 detector, but the
+      detector state, cadence and event phase were not supplied as dedicated
+      inputs to the displayed forecast. Left: historical CGM, forecast median,
+      10th to 90th percentile interval, observed future and detector-annotated
+      exercise interval. Centre: rigorous hidden-state construction attribution
+      normalized over the six directly decomposable historical groups. Right:
+      output-level LOMO reliance normalized over all eleven input groups.
+      Strong activity representation in $h_t$ does not imply that an explicit
+      exercise-response function was available to the forecast decoder.%
+    }
+    \label{fig:interp_case_exercise}
+\end{figure}
+
+The forecast in Fig.~\ref{fig:interp_case_exercise} captures the initial
+increase in glucose, and the observed future initially follows a similar
+direction. The later decline is missed: by the end of the 60-minute horizon the
+absolute error is 17.39~mg/dL, interval coverage is 83.3\%, the first interval
+exit occurs at 55 minutes, and the maximum distance outside the interval is
+4.35~mg/dL. This is therefore a late-horizon point-forecast error and an
+uncertainty-calibration error.
+
+The state-construction view shows that wearable activity/exercise is the
+largest contributor to $h_t$ in this case, accounting for 27.2\% of the
+six-group hidden-state attribution. Data quality/missingness contributes
+21.6\%, heart rate/physiology 17.3\%, and glucose history 16.9\%. This shows
+that raw wearable activity information reached the streaming representation.
+It does not prove that the model constructed an explicit semantic state for
+exercise onset, duration, cadence, recovery phase, or time since exercise. In
+the output-level view, the final forecast remains primarily driven by glucose
+history (39.8\%), followed by time/calendar (15.0\%). Wearable
+activity/exercise contributes 8.6\% of the eleven-group LOMO attribution, while
+heart rate/physiology contributes 1.7\%. Thus, activity influences the output
+less strongly than it contributes to the hidden state, and heart rate has
+little direct output reliance in this example.
+
+The episode was independently identified by the Study 2 detector as a walking
+bout. Activity-related historical inputs were the largest contributors to
+construction of the streaming state at the forecast anchor, showing that raw
+wearable information was strongly represented. However, the displayed
+trajectory was produced in forecast-only mode, without providing the detector
+state, exercise onset, cadence class, recovery phase or time since exercise as
+dedicated decoder inputs. The final forecast remained primarily driven by
+recent glucose history and calendar context. It captured the initial glucose
+increase but missed the later decline, which fell below the prediction
+interval. This case therefore does not show failure of an explicitly
+exercise-aware forecasting architecture. Instead, it shows the limitation of
+expecting a general forecaster to infer a delayed exercise-response function
+solely from historical wearable measurements.
+
+Because the external detector uses steps and heart rate, elevated activity
+attribution in a detector-selected exercise episode is partly expected by
+construction. The informative result is the mismatch between strong activity
+representation and incomplete prediction of the subsequent glucose trajectory.
+This local case evaluates factual forecasting and representation. The separate
+exercise-counterfactual analysis evaluates how the decoder output changes when
+an activity scenario is explicitly asserted.
+
+\subsubsection{Stable Overnight Sleep Forecast Case}
+\label{subsec:interp_case_sleep}
+
+Fig.~\ref{fig:interp_case_sleep} is included as a successful comparison against
+the two failure cases. Glucose is stable at the anchor: the current glucose is
+108~mg/dL and the 30-minute pre-anchor slope is 0.033~mg/dL/min. The model
+predicts a nearly flat trajectory, the observed future declines only slightly,
+and the observed trajectory remains inside the prediction interval. The
+60-minute absolute error is 3.28~mg/dL, the horizon-average MAE is
+1.95~mg/dL, interval coverage is 100.0\%, and the 60-minute interval width is
+8.51~mg/dL. This is a small-error, well-calibrated forecast.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{generated/fig_case_stable_sleep_v2.pdf}
+    \caption{%
+      \textbf{Stable overnight sleep forecast case.}
+      Left: sleep window, historical CGM, forecast median, prediction interval
+      and observed future. Centre: hidden-state construction attribution over
+      the six historical groups. Right: output-level LOMO reliance over all
+      eleven groups. The balanced multimodal state is translated into a stable
+      forecast whose observed future remains inside the prediction interval.%
+    }
+    \label{fig:interp_case_sleep}
+\end{figure}
+
+The hidden-state attribution in Fig.~\ref{fig:interp_case_sleep} is multimodal
+rather than CGM-only. Data quality/missingness is the largest
+state-construction group at 27.3\%, followed by heart rate/physiology at
+22.4\%, glucose history at 17.0\%, and sleep at 16.4\%. The output-level LOMO
+view remains led by glucose history at 29.2\%, but site/cohort (14.1\%),
+heart rate/physiology (11.8\%), data quality/missingness (10.1\%), and sleep
+(9.9\%) also influence the output. Compared with the exercise case, sleep and
+physiology are more visibly translated into the final forecast.
+
+The stable overnight case illustrates a context in which multimodal state
+information is translated into an accurate and calibrated forecast. Data
+quality, heart-rate physiology, glucose history and sleep all contribute to
+construction of the hidden state, while the final output remains primarily
+glucose-driven. The observed future remains within the prediction interval and
+differs only slightly from the forecast median. In this relatively stable
+context, the model successfully combines recent glucose with sleep and
+physiological information.
+
+The large contribution of data-quality variables should not be interpreted as
+a physiological mechanism. It may reflect legitimate reliability conditioning,
+but it may also encode sleep state, wearable non-wear, participant identity,
+site workflow or device-specific missingness.
+
+\subsubsection{Post-Decline Reversal Failure Case}
+\label{subsec:interp_case_reversal}
+
+The reversal example in Fig.~\ref{fig:interp_case_reversal} uses the
+\texttt{fast\_down} case rendered as \texttt{fig\_case\_reversal\_v2}. The
+case-quality audit confirms that the future CGM values are observed, no
+invalid CGM gap crosses the forecast horizon, no participant or segment
+boundary is crossed, timestamps are correctly aligned, no inverse-scaling error
+exists, values remain inside the accepted CGM sensor range, and the trajectory
+is not generated by a preprocessing artifact. The corresponding audit row has
+\texttt{all\_checks\_pass=True}.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{generated/fig_case_reversal_v2.pdf}
+    \caption{%
+      \textbf{Post-decline reversal failure.}
+      The model extrapolates the recent downward glucose tendency, whereas
+      observed glucose reverses sharply and exceeds the upper prediction
+      interval. Glucose history dominates both state construction and output
+      reliance. The example illustrates directional, magnitude and uncertainty
+      failure under an abrupt trajectory change.%
+    }
+    \label{fig:interp_case_reversal}
+\end{figure}
+
+Glucose declines strongly before the forecast anchor, with a 30-minute
+pre-anchor slope of -3.300~mg/dL/min and current glucose of 169~mg/dL. The
+model predicts a small further decline followed by a relatively stable level,
+whereas the observed future reverses sharply and rises above 300~mg/dL. The
+observed trajectory exceeds the upper prediction interval rapidly: interval
+coverage is 0.0\%, the first interval exit occurs at 5 minutes, the maximum
+distance outside the interval is 84.76~mg/dL, and the 60-minute absolute error
+is 136.33~mg/dL.
+
+This failure has three components. It is a directional failure because the
+forecast continues the recent decline rather than predicting the reversal. It
+is a magnitude failure because the later increase is strongly underestimated.
+It is an uncertainty failure because the observed trajectory lies outside the
+prediction interval throughout the horizon.
+
+The centre panel shows that glucose history is the largest contributor to
+$h_t$, accounting for 40.7\% of the six-group hidden-state attribution.
+Activity is also represented at 19.8\%, and heart rate/physiology at 17.8\%.
+The recent declining glucose trajectory is therefore the dominant
+state-construction signal. In the right panel, glucose history also dominates
+final-output reliance at 33.1\%. Static clinical information contributes
+14.2\%, wearable activity/exercise 13.7\%, site/cohort 11.6\%, and
+time/calendar 11.4\%. Heart rate/physiology is represented in $h_t$ but has
+little direct output influence in this case, contributing 1.9\% of the
+eleven-group LOMO attribution.
+
+The reversal case exposes a major limitation of the forecast-only model. The
+sharply declining pre-anchor glucose trajectory dominates both hidden state
+construction and final-output reliance, and the decoder continues the recent
+downward tendency. The observed future instead reverses rapidly and rises well
+above the upper prediction interval. Activity and heart-rate information are
+present in the state, but they are not translated into a prediction of the
+reversal. This example therefore represents a directional, magnitude and
+uncertainty-calibration failure.
+
+The reversal may depend on information that cannot be identified from the
+recent observed trajectory, such as an unrecorded meal, treatment response or
+another physiological disturbance. No specific cause should be assigned without
+a corresponding logged event.
+
+\subsubsection{What the Local Cases Reveal}
+\label{subsec:interp_case_synthesis}
+
+The three cases separate representation from response modelling. In the
+exercise episode, wearable activity strongly contributes to the hidden state,
+but the decoder does not fully predict the later glucose decline. In the
+stable overnight case, multimodal state information is translated into an
+accurate and calibrated forecast. In the post-decline reversal, recent glucose
+history dominates both the state and output, and the decoder continues the
+recent trend while missing an abrupt change in direction. These cases suggest
+that the encoder captures meaningful multimodal context, while the main
+remaining limitation is the decoder's ability to convert that context into
+event-specific future glucose trajectories.
+
+The exercise case motivates explicit event-aware modelling rather than relying
+only on raw wearable history. A future extension could condition a residual
+head or scenario decoder on exercise-active state, time since onset, time since
+end, duration, cadence, strain and participant phenotype. The current case
+study motivates this extension but does not evaluate it.
+
+The local examples are selected illustrations of model behaviour. They support
+interpretation of the cohort-level analyses but do not establish the frequency
+of each failure mode. Population-level conclusions must rely on systematic
+stratified evaluation across all eligible anchors.

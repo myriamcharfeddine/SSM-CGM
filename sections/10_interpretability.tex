@@ -217,6 +217,18 @@ sleep, stress, and data-quality channels can shape the internal state even when
 the final forecast remains most sensitive to recent glucose.
 
 
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.86\linewidth]{generated/fig_interp_global_ht_v2.pdf}
+  \caption{%
+    \textbf{Global state-construction reliance in $h_t$ (v2).}
+    This figure summarises which streaming modality groups build the Mamba
+    hidden state.
+    Compared with output-level LOMO, the $h_t$ view gives more weight to
+    physiology, data quality, sleep, activity, and stress, showing that the
+    encoder stores contextual state information even when the decoder output is
+    glucose-dominated. %
+  }
   \label{fig:interp_global_ht_v2}
 \end{figure}
 
@@ -366,7 +378,7 @@ features and different degrees of internal correlation.
     measure model reliance in mg/dL and do not represent causal clinical
     effects or accuracy improvements.
     }
-    \label{fig:interp_static_domains}
+    \label{fig:interp_static_domains_main}
 \end{figure}
 
 The feature-level comparison provides a more precise interpretation of the
@@ -717,6 +729,8 @@ current glycemic state is a dominant axis of the learned representation.
   }
   \label{fig:interp_pca}
 \end{figure}
+
+\input{sections/local_case_studies_revision}
 
 \subsection{Interpretation and Limitations}
 \label{subsec:interp_limitations}
