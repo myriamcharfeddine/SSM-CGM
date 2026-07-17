@@ -48,10 +48,13 @@ Summing before taking the norm matters because many features are collinear:
 heart-rate mean/min/max/std and multiple activity-stage indicators can point in
 similar directions in representation space. The sum of individual norms would have double counted those shared directions.
 
-The $h_t$ interpretability is available only for the 6 groups that pass through the
-streaming encoder's grouped linear fusion into the recurrent state: glucose
-history, heart rate/physiology, wearable activity/exercise, sleep, stress, and
-data quality/missingness. 
+In the original model, $h_t$ interpretability is available for the 6 groups
+that pass through the streaming encoder's grouped linear fusion into the
+recurrent state: glucose history, heart rate/physiology, wearable
+activity/exercise, sleep, stress, and data quality/missingness. A separate
+environment-augmented model adds environmental exposure as a seventh
+$h_t$-reachable group; its state attribution and matched accuracy comparison
+are reported below.
 Time/calendar and meal proxy feed the horizon decoder directly, while static
 clinical metadata, medication metadata, and site/cohort modulate the decoder
 through the static FiLM context.
@@ -206,31 +209,62 @@ calibration.
   \label{fig:interp_h_t_rigorous}
 \end{figure}
 
-The grouped-importance view shows that the recurrent state is distributed
-rather than glucose-only.
-
-This second view is the representation-facing counterpart to the LOMO figures:
-it asks what information the encoder stores, not what immediately moves the
-decoder output.
-The difference between these views is scientifically important because wearable,
-sleep, stress, and data-quality channels can shape the internal state even when
-the final forecast remains most sensitive to recent glucose.
-
-
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.86\linewidth]{generated/fig_interp_global_ht_v2.pdf}
+  \includegraphics[width=0.92\linewidth]{generated/fig_interp_global_ht_environment_v1.png}
   \caption{%
-    \textbf{Global state-construction reliance in $h_t$ (v2).}
-    This figure summarises which streaming modality groups build the Mamba
-    hidden state.
-    Compared with output-level LOMO, the $h_t$ view gives more weight to
-    physiology, data quality, sleep, activity, and stress, showing that the
-    encoder stores contextual state information even when the decoder output is
-    glucose-dominated. %
+    \textbf{Global state-construction reliance after adding environmental
+    exposure.}
+    Rigorous joint-group norms are normalised over the 7 groups that reach
+    $h_t$ in the environment-augmented model; error bars show the corresponding
+    uncertainty intervals.
+    Environmental exposure accounts for 12.17\% of hidden-state construction,
+    behind glucose history (18.41\%), heart-rate/physiology (16.89\%),
+    data-quality/missingness (16.24\%), and sleep (13.73\%), but ahead of
+    wearable activity/exercise (11.38\%) and stress (11.17\%).
+    These values measure representation uptake, not causal influence or
+    incremental forecast utility. %
   }
   \label{fig:interp_global_ht_v2}
 \end{figure}
+
+The environment-augmented attribution in
+Fig.~\ref{fig:interp_global_ht_v2} shows that the recurrent state is distributed
+rather than glucose-only. Environmental exposure has a nontrivial 12.17\%
+joint-group share, so the encoder demonstrably stores the temperature,
+humidity, trailing variability, measurement-freshness, and missingness
+features supplied through this pathway. The wider uncertainty interval for the
+environmental group is consistent with its more limited and heterogeneous
+sensor availability. Importantly, a large hidden-state norm does not establish
+that the information improves the decoded forecast: it only establishes that
+the trained encoder uses representational capacity for that group.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.96\linewidth]{generated/fig_interp_environment_accuracy_comparison_v1.png}
+  \caption{%
+    \textbf{Matched test-set accuracy and bias with and without environmental
+    exposure.}
+    The 7-group environment model has an MAE of 10.0565~mg/dL versus
+    10.0718~mg/dL for the original 6-group model, an absolute reduction of only
+    0.0153~mg/dL (approximately 0.15\%).
+    Its bias is more negative ($-1.4365$ versus $-1.1621$~mg/dL,
+    predicted minus observed), increasing systematic underprediction by
+    0.2744~mg/dL.
+    Environmental exposure is therefore encoded in $h_t$, but it provides no
+    practically meaningful overall accuracy gain and worsens calibration bias. %
+  }
+  \label{fig:interp_environment_accuracy}
+\end{figure}
+
+Figures~\ref{fig:interp_global_ht_v2} and
+\ref{fig:interp_environment_accuracy} together illustrate why representation
+importance and predictive value must be separated. The environment group
+occupies a substantial direction in the hidden state, yet the matched
+forecasting comparison is essentially unchanged in MAE and less favorable in
+bias. The most defensible interpretation is that the encoder can absorb
+environmental and environmental-availability context, not that those inputs
+add clinically meaningful forecasting information.
 
 \subsection{Reconciling the Two Views}
 \label{subsec:interp_reconcile}

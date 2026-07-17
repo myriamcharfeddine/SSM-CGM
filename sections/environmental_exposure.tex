@@ -319,6 +319,43 @@ SSM-CGM input channel at this time.
   \label{fig:env_forecasting_value}
 \end{figure}
 
+As a complementary full-model test, environmental features were also added as
+a seventh streaming group and the model was retrained. The environmental group
+contained causally aligned temperature and humidity means, their trailing
+variability, time since the last environmental observation, and an
+environmental-missingness indicator. This experiment asks a different question
+from the frozen residual head: whether the recurrent encoder incorporates the
+environmental stream when allowed to learn a new hidden-state pathway.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.96\linewidth]{generated/fig_interp_environment_accuracy_comparison_v1.png}
+  \caption{%
+    \textbf{Forecast accuracy after adding environmental exposure to the
+    recurrent model.}
+    On the matched test set, the environment-augmented 7-group model obtained
+    an MAE of 10.0565~mg/dL, compared with 10.0718~mg/dL for the original
+    6-group model: a reduction of only 0.0153~mg/dL (approximately 0.15\%).
+    Forecast bias became more negative, changing from $-1.1621$ to
+    $-1.4365$~mg/dL (predicted minus observed).
+    Thus the negligible MAE difference is accompanied by 0.2744~mg/dL greater
+    systematic underprediction. %
+  }
+  \label{fig:env_ht_accuracy_comparison}
+\end{figure}
+
+The matched comparison in Fig.~\ref{fig:env_ht_accuracy_comparison} reinforces
+the residual-head result. Although the environment-augmented encoder assigns
+12.17\% of its rigorous 7-group hidden-state attribution to environmental
+exposure (Fig.~\ref{fig:interp_global_ht_v2}), that representation uptake does
+not translate into a practically meaningful improvement in overall forecast
+accuracy. The more negative bias also argues against treating the small MAE
+difference as an unqualified gain. Because the environmental group includes
+measurement freshness and missingness as well as physical exposure variables,
+its hidden-state share may partly reflect sensor availability or bedroom-sensor
+coverage rather than an independent physiological effect of temperature or
+humidity.
+
 Several implementation limits are relevant to the forecasting-value test.
 Sections 4--8 of the forecasting notebook used the
 \texttt{experiment\_c\_split\_adapt6h\_seed42} split because a validated dense
@@ -334,12 +371,15 @@ to change the decision, but they constrain the claim.
 \subsection{Interpretation and Decision}
 \label{subsec:env_decision}
 
-Together, these analyses separate three levels of evidence. First, bedroom
+Together, these analyses separate four levels of evidence. First, bedroom
 humidity showed a statistically robust within-participant association with
 overnight glucose range. Second, this association was not explained away by
 measured sleep architecture and was robust to key temporal controls. Third,
 when tested as an input to a residual forecasting head on top of frozen SSM-CGM
 predictions, humidity produced only a negligible MAE improvement and failed
-against its shuffled-night control. Therefore, humidity is retained as an
-interpretable, attribution-only environmental association, but it is not added
-as an SSM-CGM input channel.
+against its shuffled-night control. Fourth, the full environment-augmented
+model encoded the new group strongly in $h_t$ but reduced overall MAE by only
+0.0153~mg/dL while increasing underprediction bias by 0.2744~mg/dL.
+Therefore, environmental exposure is retained as an interpretable research
+modality and association, but the current evidence does not support using it
+as a deployed SSM-CGM input for improved forecast accuracy.
