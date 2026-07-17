@@ -2,7 +2,7 @@
 % Values are sourced from outputs/study2_exercise_stage0*,
 % outputs/study2_exercise_path_b*, and outputs/study2_exercise_advisory/.
 
-\section{Exercise Counterfactual: Imposed planning response, and a deployable advisory}
+\section{Exercise Modeling and Advisory: From an Imposed Baseline to Learned Scenarios}
 \label{sec:exercise_counterfactual}
 
 \subsection{Motivation for counterfactual}
@@ -71,13 +71,17 @@ bouts. Retention in the $200$--$300$~mg/dL bin was $7.1\%$.
 
 The within-patient curve is non-monotonic and changes sign across baseline
 bins. A true exercise counterfactual is not identifiable from AI-READI because the dataset is observational and does not contain randomized or externally assigned exercise interventions. The detected exercise episodes are inferred from wearable signals, mainly steps and heart rate, rather than recorded as ground-truth exercise sessions with known type, intensity, and intention. More importantly, the post exercise glucose response is affected by several unobserved or only partially observed factors, including recent meals, carbohydrate intake, insulin timing, insulin on-board, medication effects, stress, sleep, and baseline glucose trend. Therefore, comparing exercise windows with non exercise windows does not isolate the effect of exercise alone. Cross participant matching provides enough controls but compares different people with different physiology, while within participant matching improves comparability but leaves too few matched controls to estimate a stable effect. For this reason, AIREADI can support wearable defined exercise detection and predictive residual analysis, but it cannot provide a reliable causal estimate of the exact glucose change that would have occurred under a do exercise  intervention.
-\subsection{Counterfactual: Exercise head with imposed magnitude}
+\subsection{Preliminary imposed-kernel planning baseline}
 \label{subsec:ex_pathb}
 
-The magnitude is imposed from the descriptive, associational
+The canonical checkpoint's future-scenario pathway was practically inactive,
+so this preliminary Path B experiment was constructed as a diagnostic planning
+baseline. Its magnitude is imposed from the descriptive, associational
 moderate strain kernel of $16.66$~mg/dL, while AI READI supplies timing, shape,
 and live glucose state gating. The output is an imposed planning response,
-not a causal estimate. At forecast horizon $h$, the head is
+not a learned detector-informed scenario response and not a causal estimate.
+It is retained as a historical comparator for the subsequently learned
+scenario-aware pathway. At forecast horizon $h$, the head is
 \begin{equation}
   \Delta\hat y_{\mathrm{ex},h}=-A_hR_hS,
   \label{eq:exercise_head}
@@ -151,6 +155,12 @@ This figure shows three example forecast cards where the frozen SSM-CGM forecast
   \label{fig:exercise_pathb_cards}
 \end{figure}
 
+Path B therefore demonstrates that a manually anchored response can be wired
+to wearable timing and glucose-state gating. Because its magnitude was supplied
+by the descriptive kernel, agreement with that kernel is not independent
+validation, and its imposed magnitude is not used to validate the learned
+detector-informed response below.
+
 \subsection{Identified, deployable exercise aware Hypoglycaemia advisory}
 \label{subsec:ex_pathc}
 
@@ -197,51 +207,47 @@ remaining missed outcomes are the frozen model's residual blind spot.
   \label{fig:exercise_advisory}
 \end{figure}
 
+\input{sections/exercise_scenario_retraining}
+
 \subsection{Synthesis and Limitations}
 \label{subsec:ex_synthesis}
 
-The complete exercise part separates into four contributions. First, a wearable only
-detector identifies ambulatory exercise like episodes without glucose in the
-detection path. Second, we establishe that the counterfactual magnitude
-is not identifiable on AI-READI because cross patient matching offers overlap
-without comparability, while within patient matching offers comparability
-without positivity. This is a transferable design finding, analogous to the
-need for participant disjoint evaluation splits. Third, Path~\ref{subsec:ex_pathb} provides an imposed planning response whose timing, shape, and glucose state gating
-are data derived but whose magnitude is not estimated. Fourth, Path~\ref{subsec:ex_pathc} provides
-an identified advisory with a calibration benefit at a prespecified threshold.
+The exercise sequence now separates five distinct scientific roles. The
+detector in Section~\ref{sec:exercise_detection} identifies wearable-defined
+ambulatory exercise-like episodes and supplies retrospective strain and cadence
+pseudo-labels. The descriptive and matched observational analyses, including
+Section~\ref{sec:exercise_subgroup}, characterize exercise-associated glucose
+trajectories and frozen-model signed-bias headroom, but do not identify an
+intervention effect. Path B in Section~\ref{subsec:ex_pathb} remains an
+exploratory planning baseline whose timing and glucose-state gating are
+data-derived but whose magnitude is externally imposed.
 
-The detector remains wearable defined rather than ground truth labelled and
-is primarily sensitive to ambulatory activity. Meals, time of day, medication,
-and selection can influence the descriptive kernel. Path~\ref{subsec:ex_pathb} inherits the
-$n=118$ moderate episode anchor and its imposed magnitude should not be read as
-a causal estimate. Path~\ref{subsec:ex_pathc} has 105 hypoglycaemic outcomes, and its correction
-improves threshold calibration rather than ranking. Insulin dosing is
-unobserved, so insulin treated participants are excluded from all causal scope.
+The principal learned experiment is the detector-informed retraining in
+Section~\ref{subsec:detector_scenario_modeling}. It activated the previously
+inactive scenario decoder, achieved positive held-out predictive
+factual-future gain, and learned differentiated light, moderate, and vigorous
+model-implied responses while preserving full-test MAE. Its stronger negative
+forecast bias and absence of post-exercise carryover prevent interpretation as
+a calibrated physiological simulator. The advisory in
+Section~\ref{subsec:ex_pathc} remains a separate predictive
+threshold-calibration analysis rather than a scenario-effect estimate.
 
-\begin{table}[H]
-  \centering
-  \caption{%
-    \textbf{Wearable-defined exercise analysis summary.}
-    The detector, residual audit, identifiability result, imposed planning
-    response, and identified advisory are separate claims.%
-  }
-  \label{tab:exercise_arc_summary}
-  \small
-  \setlength{\tabcolsep}{3pt}
-  \begin{tabular}{p{0.22\linewidth}p{0.31\linewidth}p{0.39\linewidth}}
-    \toprule
-    Item & Result & Interpretation \\
-    \midrule
-    Clean episodes & 2{,}171 across 788 participants & Primary wearable-defined set \\
-    Strict recovery & 1{,}015 across 574 participants & Sensitivity subset, not a detection gate \\
-    Refined onset & Median 30 min earlier & Backtracks to sustained step rise \\
-    Negative controls & HR: 8.01 vs 0.27/$-0.46$ bpm; steps: 29.44 vs $-0.93$/$-0.23$ steps/min & Real onsets separate from shifted/random-awake controls \\
-    Cadence & 1{,}859 slow; 223 walk; 81 sub-threshold; 6 brisk; 2 run-like & Slow-walk episodes dominate \\
-    Glucose kernel & 16.66 mg/dL; nadir 28.31 min & Descriptive-associational anchor only \\
-    Residual audit & No MAE gap; bias gap $+4.19$ vigorous and $+4.05$ moderate & Provisional residual headroom \\
-    Stage 0 & Comparability and positivity cannot be achieved together & Magnitude not identifiable \\
-    Path B & $S=0.303636$; $r=-0.9402$; $\Delta$MAE $=0$ & Coherent imposed planning response \\
-    Path C & AUROC 0.975 vs 0.833 current $g_0$; 35 outcomes rescued & Identified advisory with a false-alarm cost \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+Across all five roles, the detector remains retrospective and primarily
+sensitive to ambulatory activity. Exercise was not randomized, meals and
+treatment timing remain incompletely observed, and the one-hour horizon omits
+delayed responses. Path B inherits an imposed magnitude and the advisory has
+only 105 observed hypoglycaemic outcomes. The learned pathway adds predictive
+utility and structured scenario sensitivity, but its calibration and temporal
+dynamics require further work before prospective use.
+
+The previously developed wearable exercise detector was successfully converted
+into a structured scenario pathway for SSM-CGM Stream. Scenario-aware
+retraining activated a pathway that was practically inactive in the canonical
+checkpoint. On held-out exercise episodes, revealing the observed future
+exercise trajectory improved forecasting, while empirical light, moderate,
+and vigorous profiles produced differentiated model-implied glucose responses.
+Overall full-test MAE was preserved, but the detector-informed checkpoint
+developed a stronger negative forecast bias and did not propagate effects
+beyond the supplied exercise interval. The result is therefore a successful
+predictive and scenario-sensitivity proof of concept, rather than a validated
+causal or physiological exercise simulator.

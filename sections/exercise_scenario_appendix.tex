@@ -1,0 +1,230 @@
+\section{Exercise Scenario Supplement}
+\label{app:exercise_scenario}
+
+\subsection{Supplementary Detector-Informed Exercise Modeling Results}
+\label{subsec:exercise_scenario_supplement}
+
+This appendix contains the existing detailed result figures supporting
+Section~\ref{subsec:detector_scenario_modeling}. Each figure uses the fixed
+held-out participant evaluation or its documented validation counterpart; no
+figure was regenerated for the report.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{exercise_scenario/figure_10_robustness_subsets.pdf}
+  \caption{%
+    \textbf{Robustness across detector episode subsets.}
+    Predictive gain and planned terminal effects are shown for all primary,
+    high-confidence, and strict-recovery episode definitions.%
+  }
+  \label{fig:exercise_robustness_supp}
+\end{figure}
+Figure~\ref{fig:exercise_robustness_supp} shows positive factual-future gain in
+all three subsets. The intervals overlap, so the restricted subsets support
+robustness but do not establish that one detector subset is superior.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{exercise_scenario/figure_11_common_anchor_mae_and_bias.pdf}
+  \caption{%
+    \textbf{Exercise-anchor forecasting performance: original versus
+    detector-trained stream.}
+    Forecast-only MAE and bias are compared on identical exercise anchors.%
+  }
+  \label{fig:exercise_anchor_comparison_supp}
+\end{figure}
+On the common exercise-anchor cohort, the detector-trained forecast-only model
+improves MAE by approximately 0.69~mg/dL and reduces the canonical positive
+bias. This cohort-specific preservation result is not a full-stream metric.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{exercise_scenario/figure_12_full_cohort_mae_and_bias.pdf}
+  \caption{%
+    \textbf{Full validation-cohort performance: original versus
+    detector-trained stream.}
+    Validation-stream MAE and prediction-minus-observation bias are reported
+    for the canonical and selected detector-informed checkpoints.%
+  }
+  \label{fig:exercise_validation_stream_supp}
+\end{figure}
+The validation stream anticipates the final test pattern: absolute error changes
+little, while the detector-informed checkpoint shifts downward. The final
+generalization claim is based on the test-stream analysis in
+Figure~\ref{fig:exercise_full_stream}, not this validation diagnostic.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.94\linewidth]{exercise_scenario/appendix_figure_2_factual_future_gain_paired_lines.pdf}
+  \caption{%
+    \textbf{Factual future exercise improves held-out forecasting.}
+    Participant-level paired changes in pinball loss, MAE, and 60-minute MAE
+    compare unknown future with the revealed factual exercise path.%
+  }
+  \label{fig:exercise_factual_gain_supp}
+\end{figure}
+The paired view in Figure~\ref{fig:exercise_factual_gain_supp} complements the
+cohort averages in Table~\ref{tab:exercise_factual_future}. It shows that the
+reported gain is a predictive comparison on identical anchors and preserves
+participant clustering.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{exercise_scenario/figure_4_canonical_vs_trained_pathway.pdf}
+  \caption{%
+    \textbf{Canonical versus trained exercise pathway on identical anchors.}
+    Planned light, moderate, and vigorous responses are compared with planned
+    no exercise for both checkpoints.%
+  }
+  \label{fig:exercise_canonical_trained_supp}
+\end{figure}
+The canonical pathway is practically flat, while the detector-informed pathway
+is nonzero and differentiated. This is evidence of pathway activation and
+model sensitivity, not validation against a physiological target.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.90\linewidth]{exercise_scenario/figure_3_exercise_counterfactual_trajectories.pdf}
+  \caption{%
+    \textbf{Detector-informed planned exercise trajectories.}
+    Mean forecast changes relative to planned no exercise are shown over the
+    one-hour decoder horizon with participant-bootstrap intervals.%
+  }
+  \label{fig:exercise_trajectories_supp}
+\end{figure}
+The learned responses increase gradually in magnitude and preserve the light,
+moderate, and vigorous ordering. Their horizon-local form should be interpreted
+with the duration and timing limitation in
+Figure~\ref{fig:exercise_temporal_sweeps}.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.88\linewidth]{exercise_scenario/figure_6_effect_by_starting_glucose.pdf}
+  \caption{%
+    \textbf{Model-implied exercise effect by starting glucose.}
+    Planned terminal responses are stratified below 105~mg/dL, from 105 to
+    180~mg/dL, and above 180~mg/dL.%
+  }
+  \label{fig:exercise_starting_glucose_supp}
+\end{figure}
+Starting glucose is the clearest interpretable gradient in the learned
+responses. Larger modeled reductions at higher glucose indicate contextual
+conditioning, but may also reflect the residual-current target and the
+observational state distribution.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.82\linewidth]{exercise_scenario/figure_5_participant_effect_distribution.pdf}
+  \caption{%
+    \textbf{Participant-level terminal-effect distributions.}
+    Each distribution summarizes participant-mean planned 60-minute responses
+    for one strain profile.%
+  }
+  \label{fig:exercise_participant_effects_supp}
+\end{figure}
+The participant summaries show heterogeneous magnitude even though nearly all
+planned-profile effects are negative in the selected checkpoint. They describe
+model behavior across participants rather than individual physiological
+sensitivity.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{exercise_scenario/figure_9_exercise_component_ablation.pdf}
+  \caption{%
+    \textbf{Exercise component ablations on identical held-out anchors.}
+    Factual-future gain, factual MAE, mean absolute scenario effect, and
+    terminal effect consistency are compared across coherent edits.%
+  }
+  \label{fig:exercise_component_ablation_supp}
+\end{figure}
+The component ablations show redundancy among exercise variables. Labels-only
+retain more gain than HR and steps alone, but no single variable accounts for
+the combined pathway benefit, and mask changes remain part of each ablation.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.94\linewidth]{exercise_scenario/figure_i2_permutation_importance.pdf}
+  \caption{%
+    \textbf{Participant-level grouped permutation importance.}
+    Loss of predictive gain and increase in factual MAE are summarized across
+    five permutation seeds.%
+  }
+  \label{fig:exercise_permutation_supp}
+\end{figure}
+Exact strain identity has modest importance and uncertainty across seeds is
+large; several individual inputs have effects close to zero. The result is
+consistent with reliance on a redundant block and does not assign causal
+feature effects.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.94\linewidth]{exercise_scenario/figure_i3_scenario_effect_probes.pdf}
+  \caption{%
+    \textbf{Linear probes of the scenario-effect representation.}
+    Held-out classification and regression probes compare the
+    detector-informed effect branch with the shared canonical branch.%
+  }
+  \label{fig:exercise_effect_probes_supp}
+\end{figure}
+Starting-glucose state is moderately recoverable, while strain and cadence are
+weakly recoverable. Negative held-out $R^2$ for raw HR, steps, or duration means
+that a simple linear map is unreliable; it does not show that the nonlinear
+decoder ignores the variable.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.94\linewidth]{exercise_scenario/figure_i4_hidden_state_probes.pdf}
+  \caption{%
+    \textbf{Secondary probes of the historical hidden state.}
+    Linear probe performance is compared between canonical and
+    detector-informed historical representations.%
+  }
+  \label{fig:exercise_hidden_probes_supp}
+\end{figure}
+Current glucose remains strongly represented, and the three recent-exercise
+indicators become linearly recoverable after training. Their recoverability
+does not imply predictive necessity, as zeroing recent history leaves global
+test behavior nearly unchanged.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth,height=0.70\textheight,keepaspectratio]{exercise_scenario/figure_i8_subgroup_heterogeneity.pdf}
+  \caption{%
+    \textbf{Supported subgroup heterogeneity.}
+    Participant-mean terminal effects are shown only for cells meeting the
+    prespecified participant and anchor support thresholds.%
+  }
+  \label{fig:exercise_subgroups_supp}
+\end{figure}
+Strain ordering is broadly stable and starting glucose is the clearest
+interpretable gradient. Site and clinical-group differences remain exploratory
+because subgroup composition, observed state, and sensor support can differ.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.96\linewidth]{exercise_scenario/figure_i10_scenario_latent_pca.pdf}
+  \caption{%
+    \textbf{PCA of the detector-informed scenario-effect representation.}
+    The first two standardized principal components are colored by strain and
+    starting-glucose stratum.%
+  }
+  \label{fig:exercise_pca_supp}
+\end{figure}
+The first two components explain only 20.7\% and 8.4\% of latent variance, and
+no clear class clustering is visible. PCA is descriptive and does not establish
+mechanistic separation.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[height=0.76\textheight,keepaspectratio]{exercise_scenario/figure_7_individual_examples.pdf}
+  \caption{%
+    \textbf{Reproducibly selected held-out exercise examples.}
+    Fixed selection rules illustrate an in-range anchor, a high-glucose anchor,
+    a low-glucose anchor, and a case with large factual forecast improvement.%
+  }
+  \label{fig:exercise_examples_supp}
+\end{figure}
+The examples illustrate pathway behavior but do not replace cohort-level
+evaluation. Cases in which all forecasts miss the observed trajectory are
+evidence that important drivers remain unobserved, not evidence against the
+paired cohort result.

@@ -1,0 +1,496 @@
+\subsection{Detector-Informed Scenario-Aware Exercise Modeling}
+\label{subsec:detector_scenario_modeling}
+
+\subsubsection{From exercise detection to scenario supervision}
+
+Sections~\ref{sec:exercise_detection} and~\ref{sec:exercise_subgroup}
+established a wearable-defined exercise detector and characterized the glucose
+trajectories surrounding its episodes. The next question was whether those
+detector outputs could activate the future-scenario pathway of SSM-CGM Stream.
+The canonical checkpoint supported future heart-rate and step inputs
+architecturally, but its scenario masks had been zeroed during forecast-only
+training. Consequently, realistic exercise edits changed its terminal forecast
+by only approximately $0.003$~mg/dL. The completed experiment therefore used
+detector-derived exercise pseudo-labels as retrospective supervision and
+trained the scenario decoder to use factual future exercise information.
+
+This stage is distinct from both preceding analyses. Detector construction asks
+whether wearable signals locate ambulatory exercise-like episodes, while the
+descriptive kernels ask how observed glucose behaves around those episodes.
+The present factual-future evaluation asks whether revealing the observed
+future exercise path improves prediction, and the planned-scenario evaluation
+measures the model's sensitivity to supplied exercise profiles. Neither
+analysis identifies the glucose trajectory that would have occurred under a
+randomly assigned intervention.
+
+\subsubsection{Exercise scenario representation}
+
+The original five-minute panel was not modified. A copied panel retained all
+original HR, steps, timestamps, and other columns, and added nine future
+scenario channels: \texttt{exercise\_detected\_active}, the light, moderate,
+and vigorous \texttt{exercise\_strain} indicators, the slow-walk, walk,
+brisk-walk, and run-like \texttt{exercise\_cadence} indicators, and
+\texttt{exercise\_duration\_minutes}. The observed history additionally
+contained \texttt{recent\_exercise\_30min},
+\texttt{recent\_exercise\_60min}, and
+\texttt{recent\_exercise\_120min}. HR and steps remained the existing future
+physiological scenario variables. Sub-threshold indicators, confidence,
+recovery, elapsed-time, and remaining-time fields were retained for audit or
+excluded from model input according to their provenance.
+
+Alignment used participant identity and timezone-aware local timestamps. Model
+and detector segment identifiers were not assumed to be numerically identical.
+The audit retained 1{,}770 panel-aligned episodes: 1{,}204 in training, 282 in
+validation, and 284 in test. Exercise-active rows represented only $0.744\%$
+of the 4{,}532{,}158-row copied panel, motivating exercise-anchor weighting and
+sampling during training.
+
+Empirical planned-exercise profiles were estimated from training participants
+only. For strain class $c$ and horizon $h$, the participant-balanced profile was
+\begin{equation}
+  \overline{x}^{(c)}_h
+  =
+  \frac{1}{N_c}
+  \sum_{p=1}^{N_c}
+  \left[
+    \frac{1}{n_{p,c}}
+    \sum_{i=1}^{n_{p,c}} x^{(p,i,c)}_h
+  \right],
+  \label{eq:exercise_empirical_signature}
+\end{equation}
+where $x_h$ is the HR or step trajectory. Episodes were aligned at the
+detector-derived onset, averaged within participant, and then averaged across
+participants. Twelve five-minute steps represented the one-hour scenario, and
+participant-bootstrap intervals preserved participant clustering. Training
+support comprised 82 light episodes from 70 participants, 591 moderate episodes
+from 280 participants, and 476 vigorous episodes from 297 participants.
+
+Figure~\ref{fig:detector_exercise_signatures} shows that HR clearly separates
+the strain classes, whereas step profiles overlap considerably. Strain thus
+captures cardiovascular load more clearly than cadence in this library.
+Cadence remains an auxiliary descriptor, and run-like denotes high-cadence
+wrist-wearable ambulation rather than confirmed running.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{exercise_scenario/figure_1_empirical_exercise_signatures.pdf}
+  \caption{%
+    \textbf{Training-only empirical exercise signatures.}
+    The empirical detector-derived exercise library used as planned scenario
+    input. Heart-rate trajectories distinguish strain classes more clearly
+    than step trajectories. Profiles were estimated from training participants
+    only; bands show participant-bootstrap confidence intervals.%
+  }
+  \label{fig:detector_exercise_signatures}
+\end{figure}
+
+\subsubsection{Scenario-aware retraining objective}
+
+The historical state was fixed before the scenario edit,
+\begin{equation}
+  h_t = E_{\theta}\left(X_{1:t},S\right),
+  \label{eq:exercise_history_state}
+\end{equation}
+and the scenario-aware forecast was decomposed as
+\begin{equation}
+  \widehat{\mathbf G}_{t+1:t+H}
+  = f_{\mathrm{base}}\left(h_t,T\right)
+  + \Delta f_{\mathrm{exercise}}
+    \left(h_t,T,A\odot M,M\right).
+  \label{eq:exercise_scenario_decomposition}
+\end{equation}
+Here $A$ contains planned future values, $M$ contains their availability
+masks, and $A\odot M$ prevents unknown future values from being treated as
+observed. The additive exercise branch was initialized at zero.
+
+The mask distinguishes three states. Forecast only uses $M=0$. Planned no
+exercise uses $M=1$ with $a^{\mathrm{exercise}}=0$. Planned exercise uses
+$M=1$ with $a^{\mathrm{exercise}}=A^{(c)}$ for
+$c\in\{\mathrm{light},\mathrm{moderate},\mathrm{vigorous}\}$. Unknown future
+is therefore not equivalent to an explicitly supplied plan of no exercise, and
+the primary planned comparison is exercise versus planned no exercise.
+
+The imposed Path B kernel was disabled, \texttt{hr\_exercise=false}, and no
+fixed negative sign or ordering loss forced vigorous below moderate or light.
+The checkpoint audit found all 87 frozen canonical tensors exactly unchanged;
+only the expanded scenario and recent-history pathway was learned.
+
+Training combined a forecast-only pass,
+\begin{equation}
+  \widehat{\mathbf G}^{\mathrm{FO}}
+  = f_{\theta}\left(h_t,A=0,M=0\right),
+\end{equation}
+with a factual-future pass,
+\begin{equation}
+  \widehat{\mathbf G}^{\mathrm{FF}}
+  = f_{\theta}\left(h_t,A=A^{\mathrm{observed}},
+      M=M^{\mathrm{observed}}\right).
+\end{equation}
+The objective was
+\begin{equation}
+  \mathcal L
+  = \mathcal L_{\mathrm{FO}}
+  + \lambda_{\mathrm{FF}}\mathcal L_{\mathrm{FF}}
+  + \lambda_{\mathrm{smooth}}
+      \left\|\Delta^2\Delta\widehat{\mathbf G}\right\|_2^2
+  + \lambda_0\left(\Delta\widehat G_1\right)^2.
+  \label{eq:exercise_training_objective}
+\end{equation}
+The forecast-only loss protected ordinary forecasting, the factual-future loss
+trained use of observed future exercise, the smoothness term discouraged
+oscillatory effects, and the first-step penalty discouraged an instantaneous
+jump. Exercise anchors were oversampled or weighted because they were sparse.
+The objective did not reward a large scenario-effect magnitude.
+
+Predictive factual-future gain is defined as
+\begin{equation}
+  G_{\mathrm{FF}}
+  = \mathcal L_{\mathrm{FO,exercise}}
+  - \mathcal L_{\mathrm{FF,exercise}}.
+  \label{eq:exercise_ff_gain}
+\end{equation}
+A positive value means that exercise information improves prediction on the
+same exercise anchors. It is not an intervention-effect estimate.
+
+\subsubsection{Checkpoint selection and channel audit}
+
+The guarded validation criterion selected epoch 0, the first completed
+training epoch, from the selected best-model checkpoint. Training continued
+through epoch 5 and stopped normally when early-stopping patience reached five;
+the stop was not caused by an error. At selection, forecast-only validation MAE
+degraded by only $0.0257$~mg/dL relative to the canonical reference, well below
+the $0.20$~mg/dL guard, while validation exercise factual-future pinball gain
+was $0.0378$. Epoch numbering therefore does not mean that no training occurred.
+The new exercise values, availability masks, and recent-history projections
+all had nonzero learned weights.
+
+Table~\ref{tab:detector_exercise_support} summarizes the training and evaluation
+support. Training and test participants remained disjoint, and the scenario
+templates used training participants only.
+
+\begin{table}[H]
+  \centering
+  \caption{\textbf{Detector-informed training and evaluation support.}}
+  \label{tab:detector_exercise_support}
+  \small
+  \begin{tabular}{lr}
+    \toprule
+    Quantity & Value \\
+    \midrule
+    Selected trained epoch & 0 \\
+    Eligible held-out exercise episodes & 281 \\
+    Held-out exercise participants & 110 \\
+    Forecast horizons & 12 \\
+    Participant-bootstrap resamples & 500 \\
+    Frozen canonical tensors, exactly unchanged & 87 \\
+    Full-test participants & 221 \\
+    Full-test forecast rows & 1{,}861{,}356 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsubsection{Held-out factual-future forecasting}
+
+The fixed held-out evaluation contained 281 eligible light, moderate, or
+vigorous episodes from 110 unseen test participants. Three sub-threshold
+episodes were excluded, all remaining anchors matched both checkpoints, and
+each episode contributed 12 five-minute horizons. Five hundred bootstrap
+resamples used the participant as the sampling unit, retaining all episodes
+from a sampled participant together.
+
+As shown in Table~\ref{tab:exercise_factual_future}, revealing the factual
+exercise path reduced pinball loss from 4.134 to 3.880, MAE from 12.34 to
+11.66~mg/dL, RMSE from 17.63 to 17.01~mg/dL, and 60-minute MAE from 16.22 to
+15.18~mg/dL. The predictive factual-future pinball gain was $0.254$ with 95\%
+participant-bootstrap CI $[0.174,0.325]$. Forecast-only and factual predictions
+differed by 2.09~mg/dL on average. This demonstrates an active, predictively
+useful scenario pathway, not the glucose response to an assigned intervention.
+Exercise-anchor errors are not compared with full-stream errors because the
+evaluation cohorts differ.
+
+\begin{table}[H]
+  \centering
+  \caption{%
+    \textbf{Held-out factual-future forecasting.}
+    Intervals are participant-bootstrap 95\% CIs. The gain row is forecast
+    only minus factual future, so positive values indicate improvement.%
+  }
+  \label{tab:exercise_factual_future}
+  \scriptsize
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{lcccc}
+    \toprule
+    Mode & Pinball & MAE, mg/dL & RMSE, mg/dL & 60-min MAE, mg/dL \\
+    \midrule
+    Forecast only & 4.134 $[3.667,4.622]$ & 12.34 $[11.09,13.78]$ & 17.63 $[15.44,20.42]$ & 16.22 $[14.25,18.39]$ \\
+    Factual future exercise & 3.880 $[3.466,4.409]$ & 11.66 $[10.42,12.81]$ & 17.01 $[15.00,19.30]$ & 15.18 $[13.21,17.41]$ \\
+    Gain & 0.254 $[0.174,0.325]$ & 0.673 $[0.453,0.853]$ & 0.623 $[0.330,0.856]$ & 1.033 $[0.667,1.350]$ \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
+
+Figure~\ref{fig:detector_exercise_main_results} places the predictive gain next
+to pathway activation, planned trajectories, and dependence on starting
+glucose. Detailed component figures are reported in
+Appendix~\ref{subsec:exercise_scenario_supplement}.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.98\linewidth]{exercise_scenario/figure_8_exercise_result_summary.pdf}
+  \caption{%
+    \textbf{Detector-informed exercise pathway: main results.}
+    Predictive factual-future gain, canonical versus trained sensitivity,
+    planned-exercise trajectories, and dependence on starting glucose are
+    shown on the identical held-out anchor cohort.%
+  }
+  \label{fig:detector_exercise_main_results}
+\end{figure}
+
+\subsubsection{Learned planned-exercise responses}
+
+For strain class $c$, the model-implied planned response was
+\begin{equation}
+  \Delta\widehat{\mathbf G}^{(c)}
+  = \widehat{\mathbf G}\left(h_t,A^{(c)},M=1\right)
+  - \widehat{\mathbf G}\left(h_t,A^{(0)},M=1\right),
+  \label{eq:planned_exercise_effect}
+\end{equation}
+where $A^{(0)}$ denotes planned no exercise. At 60 minutes, the learned effects
+were $-1.345$~mg/dL for light, $-2.579$~mg/dL for moderate, and
+$-2.916$~mg/dL for vigorous scenarios. On identical anchors, canonical
+effects were only $-0.0036$, $-0.0033$, and $-0.0033$~mg/dL, respectively
+(Table~\ref{tab:exercise_planned_effects}). The learned response grew gradually
+over the horizon, with moderate and vigorous scenarios larger than light.
+These are model sensitivities to supplied profiles, not physiological response
+estimates.
+
+\begin{table}[H]
+  \centering
+  \caption{%
+    \textbf{Planned scenario effects at 60 minutes relative to planned no
+    exercise.} Intervals use participant bootstrap resampling.%
+  }
+  \label{tab:exercise_planned_effects}
+  \small
+  \begin{tabular}{lcccrr}
+    \toprule
+    Scenario & Trained effect & 95\% CI & Canonical effect & Anchors & Participants \\
+    \midrule
+    Light & $-1.345$ & $[-1.399,-1.295]$ & $-0.0036$ & 281 & 110 \\
+    Moderate & $-2.579$ & $[-2.654,-2.488]$ & $-0.0033$ & 281 & 110 \\
+    Vigorous & $-2.916$ & $[-3.024,-2.823]$ & $-0.0033$ & 281 & 110 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+A controlled strain-label sweep held physiology, duration, and timing fixed
+and produced the same ordering, with terminal effects of approximately
+$-1.44$, $-2.60$, and $-2.84$~mg/dL. This confirms that the decoder responds
+to the supplied strain category, but does not validate the category as an
+assigned biological dose.
+
+Starting glucose was stratified below 105~mg/dL, from 105 to 180~mg/dL, and
+above 180~mg/dL. Model-implied reductions were larger at higher starting
+glucose, indicating context-conditioned decoder behavior. This pattern does
+not establish greater biological effectiveness at high glucose and may reflect
+the state representation, the residual-current target, or the observational
+training distribution. The corresponding descriptive heterogeneity is kept in
+Section~\ref{sec:exercise_subgroup} rather than repeated here.
+
+\subsubsection{Functional reliance and robustness}
+
+Grouped ablations measured loss of predictive gain or increased factual MAE
+after removing coherent input groups. Figure~\ref{fig:exercise_grouped_ablation}
+and Table~\ref{tab:exercise_functional_ablation} show that the full block gained
+$0.254$, labels-only retained $0.219$, and HR-and-steps-only retained $0.095$.
+Removing all detector labels reduced gain to $0.042$, while removing all
+exercise variables eliminated it. The decoder therefore relies on the combined
+exercise block, with detector-derived labels contributing more than HR and
+steps alone in this trained pathway.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{exercise_scenario/figure_i1_grouped_ablation.pdf}
+  \caption{%
+    \textbf{Grouped scenario ablation importance.}
+    Importance is the loss of predictive factual-future gain or increase in
+    factual MAE after removal of a coherent exercise-input group.%
+  }
+  \label{fig:exercise_grouped_ablation}
+\end{figure}
+
+\begin{table}[H]
+  \centering
+  \caption{%
+    \textbf{Functional ablations on identical held-out anchors.}
+    Terminal and mean absolute effects are in mg/dL.%
+  }
+  \label{tab:exercise_functional_ablation}
+  \scriptsize
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{lrrrr}
+    \toprule
+    Analysis & Factual-future gain & Factual MAE & Terminal effect & Mean absolute effect \\
+    \midrule
+    Full & 0.254 & 11.662 & $-3.127$ & 2.092 \\
+    HR and steps only & 0.095 & 12.091 & $-1.013$ & 0.688 \\
+    Labels only & 0.219 & 11.752 & $-2.691$ & 1.751 \\
+    No strain & 0.194 & 11.824 & $-2.347$ & 1.568 \\
+    No cadence & 0.201 & 11.803 & $-2.334$ & 1.550 \\
+    No duration & 0.215 & 11.768 & $-2.527$ & 1.692 \\
+    All detector labels removed & 0.042 & 12.230 & $-0.381$ & 0.286 \\
+    All exercise inputs removed & 0.000 & 12.335 & 0.000 & 0.000 \\
+    Shuffled strain and cadence & 0.253 & 11.662 & $-3.132$ & 2.096 \\
+    Three-step circular time shift & 0.259 & 11.648 & $-3.191$ & 2.104 \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
+
+Individual channels contain redundant information, and grouped ablation changes
+both values and availability-mask semantics. These are functional reliance
+measures, not causal feature effects. In particular, shuffled strain and
+cadence labels preserved nearly the full predictive gain, the circular
+time-shift control changed performance little, and exact-variable permutation
+effects were modest and uncertain. The trained model relies strongly on the
+presence, availability, and activation structure of the detector-derived
+exercise block. Evidence that exact strain and cadence identity is necessary
+for factual prediction is weaker. Detailed component ablation, permutation,
+probe, and latent-space results appear in
+Appendix~\ref{subsec:exercise_scenario_supplement}.
+
+Robustness was evaluated without changing the primary cohort definition.
+Factual-future gain remained positive for all primary episodes, $0.254$
+$[0.178,0.327]$ on 281 anchors from 110 participants; high-confidence episodes,
+$0.281$ $[0.196,0.369]$ on 216 anchors from 98 participants; and strict-recovery
+episodes, $0.245$ $[0.140,0.361]$ on 128 anchors from 79 participants. The
+result is therefore not driven only by low-confidence episodes. The overlapping
+intervals do not establish superiority of either restricted subset; the saved
+robustness figure is shown in Appendix~\ref{fig:exercise_robustness_supp}.
+
+\subsubsection{Full-test-stream generalization}
+
+The final forecast-only comparison used 1{,}861{,}356 rows from 221 held-out
+test participants. Table~\ref{tab:exercise_full_stream} and
+Figure~\ref{fig:exercise_full_stream} show that full-stream MAE was practically
+preserved, changing from 10.122~mg/dL for the canonical checkpoint to
+10.144~mg/dL for the detector-trained checkpoint. Forecast calibration was not
+preserved: bias, defined as prediction minus observation, shifted from
+$-1.044$ to $-2.502$~mg/dL. Zeroing the three recent-exercise history channels
+yielded MAE 10.141~mg/dL and bias $-2.494$~mg/dL, so those variables do not
+explain the global downward shift.
+
+\begin{table}[H]
+  \centering
+  \caption{\textbf{Full test-stream generalization in forecast-only mode.}}
+  \label{tab:exercise_full_stream}
+  \small
+  \begin{tabular}{lrrrr}
+    \toprule
+    Condition & MAE, mg/dL & Bias, mg/dL & Participants & Forecast rows \\
+    \midrule
+    Canonical & 10.122 & $-1.044$ & 221 & 1{,}861{,}356 \\
+    Detector trained & 10.144 & $-2.502$ & 221 & 1{,}861{,}356 \\
+    Detector trained, recent history zero & 10.141 & $-2.494$ & 221 & 1{,}861{,}356 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.96\linewidth]{exercise_scenario/figure_13_test_stream_history_ablation.pdf}
+  \caption{%
+    \textbf{Final test-stream detector comparison and recent-history ablation.}
+    Overall MAE is nearly unchanged, while the detector-trained checkpoint has
+    a stronger negative bias that remains after recent-exercise history is
+    zeroed.%
+  }
+  \label{fig:exercise_full_stream}
+\end{figure}
+
+Distance from exercise clarifies the specialization. During exercise,
+detector-trained MAE improved from 11.793 to 11.511~mg/dL, while canonical
+positive bias of $+1.311$~mg/dL became a modest negative bias of
+$-0.822$~mg/dL. From zero to two hours after exercise, MAE worsened from
+12.756 to 12.991~mg/dL and negative bias strengthened from $-1.345$ to
+$-4.367$~mg/dL. Zeroing recent history improved the latter MAE to
+12.788~mg/dL and bias to $-3.070$~mg/dL, removing part but not all of the
+degradation. More than two hours from exercise, MAE was nearly identical
+(10.066 versus 10.089~mg/dL), yet the negative bias shift remained
+($-1.067$ versus $-2.495$~mg/dL). Exercise specialization therefore improved
+the intended context and preserved global absolute error, but did not preserve
+calibration. These results do not by themselves establish scenario leakage;
+the remaining forecast-only bias requires branch-level decomposition.
+
+\subsubsection{Temporal limitations and future model design}
+
+The controlled duration and timing sweeps in
+Figure~\ref{fig:exercise_temporal_sweeps} reveal a horizon-local decoder. A
+20-minute supplied scenario returns immediately to zero after 20 minutes, and
+a 40-minute scenario returns immediately to zero after 40 minutes. Delaying
+the supplied exercise delays the response. The model does not propagate a
+post-exercise carryover state and therefore performs horizon-local conditioning
+rather than dynamic physiological simulation.
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{exercise_scenario/figure_i6_duration_sensitivity.pdf}
+    \caption{Duration sweep.}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{exercise_scenario/figure_i7_timing_sensitivity.pdf}
+    \caption{Timing sweep.}
+  \end{subfigure}
+  \caption{%
+    \textbf{Temporal scenario sensitivity.}
+    Effects occur only at decoder horizons where exercise is actively supplied;
+    no gradual post-exercise decay is propagated.%
+  }
+  \label{fig:exercise_temporal_sweeps}
+\end{figure}
+
+A future decoder could introduce a dynamic response state,
+\begin{align}
+  z_{t+h} &= \rho z_{t+h-1} + \beta a_{t+h}, \qquad 0<\rho<1, \\
+  \Delta\widehat G_{t+h} &= g_{\phi}\left(h_t,z_{t+h}\right),
+  \label{eq:exercise_dynamic_state}
+\end{align}
+allowing exercise influence to decay after the active interval rather than
+ending abruptly.
+
+Several strengths support the proof of concept. Detector outputs were
+operationalized as explicit model variables, participant splits remained
+disjoint, empirical templates used training participants only, the canonical
+near-zero pathway became responsive, real exercise paths improved held-out
+prediction, planned strain classes became differentiated, exercise-period MAE
+improved, full-test MAE was essentially unchanged, robustness subsets retained
+positive gain, and frozen canonical tensors remained unchanged.
+
+The limitations remain consequential. Pseudo-labels are retrospective and
+exercise was not randomized. The empirical profiles are templates rather than
+assigned interventions, exact strain and cadence identity is less important
+than the coherent block and mask structure, and light support is much smaller
+than moderate or vigorous support. Brisk-walk and run-like support is too sparse
+for separate claims. The ambulatory detector does not capture stationary
+cycling, resistance exercise, or isometric activity. The trained checkpoint
+has a stronger negative full-stream bias, the current decoder has no learned
+carryover, and the one-hour horizon cannot represent delayed responses.
+Prospectively selected examples in Appendix~\ref{fig:exercise_examples_supp}
+illustrate both useful responses and remaining unobserved drivers, but do not
+replace cohort-level evidence.
+
+The first design priority is structural forecast-only invariance,
+\begin{equation}
+  M=0 \Longrightarrow \Delta f_{\mathrm{exercise}}=0.
+  \label{eq:exercise_forecast_invariance}
+\end{equation}
+The second is a separate audit of the base branch and zero-mask scenario branch
+to locate the downward bias. The third is the dynamic exercise-response and
+recovery state above, followed by two- or three-hour evaluation and held-out
+calibration of the detector-informed checkpoint. A mask-versus-content control
+should then compare real values with real masks, zero values with real masks,
+exercise-active only, shuffled values with real masks, and zero values with
+zero masks. Finally, validation requires prospective records of exercise type,
+duration, meals, and treatment timing.
