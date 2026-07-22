@@ -34,6 +34,7 @@ class AireadiStreamModelConfig:
     film_mode: str = "scale_shift"
     fusion_mode: str = "grouped_sum"
     scenario_decompose: bool = True
+    hard_gate_scenario_effect: bool = False
     hr_exercise: bool = False
     hr_exercise_gain_target: float = 0.30363636363636365
     hr_exercise_deadzone_bpm: float = 15.0
@@ -330,6 +331,7 @@ class AireadiStreamModel(nn.Module):
         future_hr_mask: torch.Tensor | None = None,
         return_decomposition: bool = False,
         return_exercise_components: bool = False,
+        return_components: bool = False,
     ):
         if h_t.dim() == 1:
             h_t = h_t.unsqueeze(0)
@@ -338,15 +340,54 @@ class AireadiStreamModel(nn.Module):
         if e_s.shape[0] == 1 and h_t.shape[0] > 1:
             e_s = e_s.expand(h_t.shape[0], -1)
 
+        hard_gate = bool(self.config.hard_gate_scenario_effect)
         if self.exercise_head is None:
-            return self.decoder(
+            if not return_components and not hard_gate:
+                return self.decoder(
+                    h_t,
+                    e_s,
+                    time_fused,
+                    scenario_values,
+                    scenario_mask,
+                    return_decomposition=return_decomposition,
+                )
+            decoder_components = self.decoder(
                 h_t,
                 e_s,
                 time_fused,
                 scenario_values,
                 scenario_mask,
-                return_decomposition=return_decomposition,
+                return_components=True,
             )
+            if hard_gate:
+                gate = decoder_components["scenario_availability"].to(
+                    dtype=decoder_components["scenario_effect"].dtype
+                )
+                decoder_components["scenario_effect"] = (
+                    decoder_components["scenario_effect"] * gate
+                )
+                decoder_components["final"] = (
+                    decoder_components["base"]
+                    + decoder_components["scenario_effect"]
+                )
+            if return_components:
+                decoder_components.update(
+                    {
+                        "historical_state": h_t,
+                        "static_embedding": e_s,
+                        "time_latent": time_fused,
+                        "scenario_values": scenario_values,
+                        "scenario_mask": scenario_mask,
+                    }
+                )
+                return decoder_components
+            if return_decomposition:
+                return (
+                    decoder_components["final"],
+                    decoder_components["base"],
+                    decoder_components["scenario_effect"],
+                )
+            return decoder_components["final"]
         if current_glucose_mgdl is None:
             raise ValueError(
                 "hr_exercise requires current_glucose_mgdl so R uses y_base"
@@ -364,14 +405,17 @@ class AireadiStreamModel(nn.Module):
             decoder_mask = scenario_mask.clone()
             decoder_mask[..., hr_index] = 0.0
 
-        decoder_final, decoder_base, decoder_effect = self.decoder(
+        decoder_components = self.decoder(
             h_t,
             e_s,
             time_fused,
             scenario_values,
             decoder_mask,
-            return_decomposition=True,
+            return_components=True,
         )
+        decoder_final = decoder_components["final"]
+        decoder_base = decoder_components["base"]
+        decoder_effect = decoder_components["scenario_effect"]
         exercise_delta, components = self.exercise_head.effect(
             decoder_base,
             current_glucose_mgdl,
@@ -381,6 +425,30 @@ class AireadiStreamModel(nn.Module):
         structured_delta = exercise_delta.unsqueeze(-1)
         final = decoder_final + structured_delta
         effect = decoder_effect + structured_delta
+        if hard_gate:
+            gate = scenario_mask.bool().any(dim=-1, keepdim=True).to(
+                dtype=effect.dtype
+            )
+            effect = effect * gate
+            final = decoder_base + effect
+        if return_components:
+            decoder_components.update(
+                {
+                    "final": final,
+                    "base": decoder_base,
+                    "scenario_effect": effect,
+                    "historical_state": h_t,
+                    "static_embedding": e_s,
+                    "time_latent": time_fused,
+                    "scenario_values": scenario_values,
+                    "scenario_mask": scenario_mask,
+                    "scenario_availability": scenario_mask.bool().any(
+                        dim=-1, keepdim=True
+                    ),
+                    "exercise_components": components,
+                }
+            )
+            return decoder_components
         if return_exercise_components:
             return final, decoder_base, effect, components
         if return_decomposition:

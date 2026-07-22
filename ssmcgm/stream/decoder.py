@@ -121,6 +121,7 @@ class ScenarioHorizonDecoder(nn.Module):
         scenario_mask: torch.Tensor,    # (B, H, n_scenario)
         *,
         return_decomposition: bool = False,
+        return_components: bool = False,
     ):
         B, H = time_features.shape[0], time_features.shape[1]
         h_rep = h_t.unsqueeze(1).expand(B, H, h_t.shape[-1])
@@ -138,6 +139,19 @@ class ScenarioHorizonDecoder(nn.Module):
             rep = self._apply_trunk(self.trunk, dec_in, H)
             preds = [head(rep) for head in self.heads]    # each (B, H, o)
             out = preds[0] if not self.multi_target else preds
+            if return_components:
+                zero = out * 0 if not self.multi_target else [p * 0 for p in preds]
+                return {
+                    "final": out,
+                    "base": out,
+                    "scenario_effect": zero,
+                    "base_latent": rep,
+                    "scenario_latent": rep,
+                    "scenario_input": dec_in,
+                    "scenario_availability": scenario_mask.bool().any(
+                        dim=-1, keepdim=True
+                    ),
+                }
             if return_decomposition:
                 zero = out * 0 if not self.multi_target else [p * 0 for p in preds]
                 return out, out, zero
@@ -156,5 +170,29 @@ class ScenarioHorizonDecoder(nn.Module):
         effect = [eh(eff_rep) for eh in self.effect_heads]
         final = [b + e for b, e in zip(base, effect)]
         if self.multi_target:
+            if return_components:
+                return {
+                    "final": final,
+                    "base": base,
+                    "scenario_effect": effect,
+                    "base_latent": base_rep,
+                    "scenario_latent": eff_rep,
+                    "scenario_input": dec_in,
+                    "scenario_availability": scenario_mask.bool().any(
+                        dim=-1, keepdim=True
+                    ),
+                }
             return (final, base, effect) if return_decomposition else final
+        if return_components:
+            return {
+                "final": final[0],
+                "base": base[0],
+                "scenario_effect": effect[0],
+                "base_latent": base_rep,
+                "scenario_latent": eff_rep,
+                "scenario_input": dec_in,
+                "scenario_availability": scenario_mask.bool().any(
+                    dim=-1, keepdim=True
+                ),
+            }
         return (final[0], base[0], effect[0]) if return_decomposition else final[0]
