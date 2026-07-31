@@ -141,6 +141,7 @@ def evaluate_aireadi_streams(
                 "segment_id": stream.segment_id,
                 "split": stream.split,
                 "anchor_time_idx": int(time_idx[anchor]),
+                "anchor_timestamp": pd.Timestamp(stream.timestamps[anchor]),
                 "steps_since_start": int(anchor + 1),
                 "hours_since_start": float(elapsed_h),
                 "scenario_mode": scenario_mode,
