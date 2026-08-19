@@ -1,4 +1,4 @@
-# SSM-CGM  
+# SSM-CGM Stream for AIREADI  
 **Interpretable State-Space Model for Continuous Glucose Forecasting and Counterfactual Analysis**
 
 > **Isaac, S., Collin, Y., & Patel, C.J. (2025).**  
