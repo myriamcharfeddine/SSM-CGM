@@ -1,120 +1,20 @@
-# SSM-CGM Stream for AIREADI  
-**Interpretable State-Space Model for Continuous Glucose Forecasting and Counterfactual Analysis**
+# Streaming multimodal glucose forecasting across the glycemic spectrum
 
-> **Isaac, S., Collin, Y., & Patel, C.J. (2025).**  
-> *SSM-CGM: Interpretable State-Space Forecasting Model of Continuous Glucose Monitoring for Personalized Diabetes Management.*  
-> Accepted at the *NeurIPS 2025 Workshop on Learning from Time Series for Health (TS4H)*.  
-> Preprint available on [arXiv:2510.04386](https://arxiv.org/abs/2510.04386)
+Master's thesis code and results, Myriam Charfeddine, EPFL, completed at Harvard DBMI.
+Supervised by Chirag Patel and Shakson Isaac (Harvard DBMI). Committee: Maria Brbic (EPFL).
 
----
+## Model
 
-## Overview
+All forecasting in this repository runs on **SSM-CGM-Stream**, a Mamba-2-based
+streaming state-space architecture. This ports SSM-CGM-Stream to the AI-READI
+multimodal cohort and builds every downstream analysis in the thesis on top of it:
+forecasting and personalization, event-aware scenario reasoning, environmental
+exposure analysis, and hidden-state interpretability and phenotyping.
 
-**SSM-CGM** is a neural **state-space model** for **interpretable glucose forecasting** and **counterfactual analysis** using continuous glucose monitoring (CGM) and wearable sensor data.
-
-It integrates CGM with physiological signals such as **heart rate, respiration, stress, etc.** to:
-- Improve short-term glucose forecasting over transformer-based baselines  
-- Provide interpretable variable and temporal importance  
-- Simulate counterfactual forecasts (e.g., “what if heart rate increases?”)
-
----
-
-## Key Features
-
-- **Mamba-based state-space core** efficient long-context forecasting  
-- **Variable Selection Networks (VSNs)** feature-level interpretability  
-- **Hidden Attention maps** identify influential time windows  
-- **Counterfactual simulation** using sequential g-formula framework  
-- **Benchmarking** against Temporal Fusion Transformer (TFT)
-
----
-
-
-## Upgrade Layer
-
-This fork presents Myriam Charfeddine's upgrades beyond the original SSM-CGM codebase. The original repository provides the base SSM-CGM model, benchmarking, interpretability, counterfactual, and meal-detection code. The added layer extends it with:
-
-- enriched multimodal clinical preprocessing from CGM, wearable, demographics, medication, and clinical measurement sources;
-- Experiment C participant-disjoint train/validation/test construction;
-- dynamic-only, dynamic + static, and participant-disjoint Mamba/TFT training scripts;
-- cloud-scale Experiment C tuning, W&B run tracking, and memory-survival controls;
-- per-participant C1 personalization and subgroup/stratum analysis.
-
-See [`MYRIAM_UPGRADES.md`](MYRIAM_UPGRADES.md) for the original-vs-added separation and [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md) for the current strategy and code map.
-
-
-## AI-READI SSMCGM-Stream Layer
-
-This fork also contains a separate **AI-READI SSMCGM-Stream** layer. It is the new stateful streaming CGM forecasting path, not the original upstream SSM-CGM experiment code and not the older window-only benchmark path.
-
-The stream layer lives in:
-- `ssmcgm/`: reusable stream model, data, training, evaluation, causal/proxy, and reporting helpers
-- `configs/aireadi_stream_full.yaml` and `configs/ablations/`: AI-READI stream configs
-- `scripts/train_stream_aireadi.py`, `scripts/evaluate_stream_aireadi.py`, `scripts/evaluate_stream_diagnostics.py`: train/evaluate/diagnose entrypoints
-- `scripts/report/`: report synchronization, table/figure generation, and validation utilities
-- `report/`: LaTeX manuscript source and generated `.tex`/figure artifacts for Overleaf/GitHub
-
-Generated training outputs stay local under `outputs/` and are not pushed: checkpoints, parquet predictions, raw metric CSV/JSON snapshots, and the Overleaf ZIP. See [`docs/SSMCGM_STREAM_BOUNDARY.md`](docs/SSMCGM_STREAM_BOUNDARY.md) for the full boundary.
-
-## Repository Structure
-
-```
-SSM-CGM/
-├── Preprocessing/           # Myriam's enriched data, cohort, and Experiment C split pipeline
-├── Benchmarking/            # Forecasting experiments, Experiment A/B/C, personalization, metrics
-├── scripts/                 # Myriam's Experiment C cloud tuning and Batch launch scripts
-├── notebooks/               # Myriam's Experiment C tuning analysis notebooks
-├── Counterfactuals/         # Counterfactual simulations & plausibility checks
-├── Interpretability/        # Variable and temporal attribution analyses
-├── MealDetection/           # CNN-BiLSTM meal detection model (CGMacros)
-├── Miscellaneous/           # Embedding visualizations & error analyses
-├── MYRIAM_UPGRADES.md       # Original base vs Myriam upgrade layer
-├── PROJECT_PROGRESS.md      # Summary of Myriam's current CGM project extensions
-├── SSM_CGM.py               # Core model implementation
-├── LICENSE
-└── README.md
-```
-
----
-
-## Quick Start
-
-
-**Environment setup**
-```bash
-conda env create -f environment.yml
-conda activate ssmcgm
-```
-
-**Run example**
-```bash
-python SSM_CGM.py
-```
-
-Or explore the Jupyter notebooks and python scripts under:
-- `Benchmarking/` for forecasting  
-- `Counterfactuals/Notebook/` for counterfactual simulations  
-- `Interpretability/` for model attributions  
-
----
-
-## Dataset Summary
-
-- **AI-READI:** 741 participants with 8–10 days of CGM and wearable data (5-min intervals)  
-- **CGMacros:** 45 participants with CGM and annotated meals (used for meal detection training)
-
-<!-- ---
-
-## Notes
-
-- Counterfactual forecasts are *associational*, not causal.  
-- AI-READI lacks meal and medication annotations (meals are inferred).  
-
---- -->
-
-## Citation
-
-If you use this work, please cite:
+> Isaac, S., Collin, Y., & Patel, C.J. (2025). *SSM-CGM: Interpretable State-Space
+> Forecasting Model of Continuous Glucose Monitoring for Personalized Diabetes
+> Management.* NeurIPS 2025 Workshop on Learning from Time Series for Health (TS4H).
+> [arXiv:2510.04386](https://arxiv.org/abs/2510.04386)
 
 ```bibtex
 @article{isaac2025ssmcgm,
@@ -125,3 +25,65 @@ If you use this work, please cite:
   note={Accepted at the NeurIPS 2025 Workshop on Learning from Time Series for Health (TS4H)}
 }
 ```
+
+## Repository structure
+SSM-CGM/
+├── ssmcgm/ # SSM-CGM-Stream: model, data, training, evaluation code
+├── configs/ # AI-READI stream configs and ablations
+├── scripts/ # Training, evaluation, and analysis scripts (flat, see mapping below)
+├── Preprocessing/ # AI-READI cohort selection and multimodal dataset construction
+├── experiments_outputs/ # Final figures, tables, and checkpoint reported in the thesis
+│ ├── model/ # best_model_checkpoint.pt and resolved eval configs
+│ ├── tables/ #  LaTeX and JSON result tables
+│ └── experiments_scripts_figures/ # Per-chapter figures, see mapping below
+├── Benchmarking/ # Earlier-phase window-based forecasting experiments (pre-streaming)
+├── Counterfactuals/ # Earlier-phase counterfactual simulation and plausibility checks
+├── MealDetection/ # Base SSM-CGM meal detector, not the meal analysis in this thesis
+├── Miscellaneous/ # Embedding visualizations and error analyses
+├── SSM_CGM.py # Base SSM-CGM entry point (Isaac et al. 2025)
+├── environment.yml
+├── LICENSE
+└── README.md
+
+`Benchmarking/`, `Counterfactuals/`, `MealDetection/`, and `Miscellaneous/` hold
+earlier, window-based experiments run before the pivot to the streaming
+architecture. They are not the pipeline behind the results in the thesis and are
+kept for project history.
+
+## Thesis chapter to repository mapping
+
+| Chapter | Content | Figures and tables |
+|---|---|---|
+| 3 | Data, model, and evaluation protocol | `experiments_outputs/experiments_scripts_figures/Preprocessing_cohort_selection/` |
+| 4 | Forecasting performance and personalization | `experiments_outputs/experiments_scripts_figures/Forecasting_personalization/` |
+| 5 | Event-aware scenario reasoning, exercise | `experiments_outputs/experiments_scripts_figures/Exercise_detector_model/` |
+| 5 | Event-aware scenario reasoning, meal | `experiments_outputs/experiments_scripts_figures/Meal_counterfactual/` |
+| 6 | Environmental exposure analysis | `experiments_outputs/experiments_scripts_figures/Environmental_exposure/` |
+| 7 | Interpretability and hidden-state phenotyping | `experiments_outputs/experiments_scripts_figures/Interpretability/` and `Clinical_hidden_state_phenotyping/` |
+
+Each figure's generating script is named the same as the figure file, or close to
+it, and lives in `scripts/`. `experiments_outputs/tables/_scripts/` holds the two
+scripts (`collect_latest_results.py`, `make_report_tables.py`) that assemble the
+result tables from raw run outputs.
+
+## Reproducing the reported model
+
+```bash
+conda env create -f environment.yml
+conda activate ssmcgm
+
+python scripts/train_stream_aireadi.py \
+  --config configs/aireadi_stream_full.yaml \
+  --smoke --device cpu
+```
+
+The checkpoint reported in the thesis is
+`experiments_outputs/model/best_model_checkpoint.pt`, the epoch-5
+best-validation checkpoint from a 10-epoch training run (validation pinball loss
+3.286316), evaluated on the `adapt6h_seed42` split.
+
+## License
+
+Distributed for academic and non-commercial research use under the terms in
+`LICENSE`. The base SSM-CGM software was developed by Shakson Isaac, Yentl
+Collin, and Chirag Patel at Harvard University.
