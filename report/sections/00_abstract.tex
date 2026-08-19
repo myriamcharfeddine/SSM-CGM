@@ -1,7 +1,0 @@
-\begin{abstract}
-We adapt SSMCGM-Stream from T1DEXI to AI-READI, a multimodal cohort spanning healthy, pre-diabetic, medication-treated, and insulin-dependent participants across multiple clinical sites. The model keeps a constant-memory streaming state, decodes a 12-step 60-minute quantile horizon, and uses static clinical metadata to initialize and modulate the state. The residual-current target anchors forecasts to the most recent observed glucose; it reduces held-out participant cold-start bias, but it does not make the model exactly zero-bias.
-
-On the participant-held-out test split, the deployable forecast-only model achieves MAE $=\maeFo$~mg/dL and RMSE $=\rmseFo$~mg/dL with 80\% interval coverage $\covFo$. True TIR is $\tirTrue\%$ and predicted TIR is $\tirPredicted\%$ (gap $\tirGap$ percentage points). Against persistence on the same anchors, the model improves average MAE by $\persistenceDeltaMae$~mg/dL and terminal 60-minute MAE from $\persistenceTerminalMAE$ to $\modelTerminalMAE$~mg/dL.
-
-AI-READI does not include timed insulin dose or insulin-on-board logs. \texttt{med\_insulin} is static metadata, insulin causal ranking is disabled, and meal/activity/sleep modes are proxy diagnostics rather than validated interventions. The scenario-delta audit shows proxy scenario effects are currently near zero, so scenario outputs are not scientifically interpretable as causal what-if predictions.
-\end{abstract}
