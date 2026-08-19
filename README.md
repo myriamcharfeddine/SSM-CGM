@@ -30,9 +30,9 @@ It integrates CGM with physiological signals such as **heart rate, respiration, 
 ---
 
 
-## Myriam Charfeddine Upgrade Layer
+## Upgrade Layer
 
-This fork foregrounds Myriam Charfeddine's upgrades beyond the original SSM-CGM codebase. The original repository provides the base SSM-CGM model, benchmarking, interpretability, counterfactual, and meal-detection code. The added layer extends it with:
+This fork presents Myriam Charfeddine's upgrades beyond the original SSM-CGM codebase. The original repository provides the base SSM-CGM model, benchmarking, interpretability, counterfactual, and meal-detection code. The added layer extends it with:
 
 - enriched multimodal clinical preprocessing from CGM, wearable, demographics, medication, and clinical measurement sources;
 - Experiment C participant-disjoint train/validation/test construction;
