@@ -1,0 +1,37 @@
+{
+  "group": "environmental exposure",
+  "subgroups": {
+    "humidity": [
+      "env_hum_mean"
+    ],
+    "temperature": [
+      "env_temp_mean"
+    ],
+    "environmental variability": [
+      "env_temp_var",
+      "env_hum_var"
+    ],
+    "environmental missingness or measurement freshness": [
+      "env_missing",
+      "env_age_since_last_min"
+    ]
+  },
+  "all_columns": [
+    "env_temp_mean",
+    "env_hum_mean",
+    "env_temp_var",
+    "env_hum_var",
+    "env_age_since_last_min",
+    "env_missing"
+  ],
+  "raw_source_template": "gs://cgmproject2025/AIREADI/environment/environmental_sensor/leelab_anura/{pid}/{pid}_ENV.csv",
+  "raw_source_notes": "Raw per-participant bedroom sensor CSV, 5-second sampling interval, 45-row device header skipped. Only 'ts', 'temp', 'hum' columns used. All features computed strictly causally: only readings at or before each panel bin's timestamp are used (merge_asof, direction='backward'); env_temp_var/env_hum_var are rolling stds over a trailing 180-minute causal window.",
+  "participant_scope": {
+    "bedroom_high_confidence_sensor_participants": 574,
+    "no_sensor_participants_fully_missing": 1318,
+    "total_cohort_participants": 1892
+  },
+  "age_since_last_cap_minutes": 720.0,
+  "panel_output_path": "/home/myriamcharfeddine/CGM/Data/enriched_multimodal/final_multimodal_with_environment_20260716_222829.parquet",
+  "generated_at": "2026-07-16T22:28:44"
+}
