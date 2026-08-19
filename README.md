@@ -1,7 +1,7 @@
 # Streaming multimodal glucose forecasting across the glycemic spectrum
 
 Master's thesis code and results, Myriam Charfeddine, EPFL, completed at Harvard DBMI.
-Supervised by Chirag Patel and Shakson Isaac (Harvard DBMI) and Maria Brbic (EPFL).
+Supervised by Chirag Patel and Shakson Isaac (Harvard University DBMI) and Maria Brbic (EPFL).
 
 ## Model
 
