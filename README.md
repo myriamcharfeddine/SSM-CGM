@@ -1,7 +1,7 @@
 # Streaming multimodal glucose forecasting across the glycemic spectrum
 
 Master's thesis code and results, Myriam Charfeddine, EPFL, completed at Harvard DBMI.
-Supervised by Chirag Patel and Shakson Isaac (Harvard DBMI). Committee: Maria Brbic.
+Supervised by Chirag Patel and Shakson Isaac (Harvard DBMI) and Maria Brbic (EPFL).
 
 ## Model
 
@@ -38,7 +38,7 @@ SSM-CGM/
 ├── experiments_outputs/             # Final figures, tables, and checkpoint reported in the thesis
 │   ├── model/                       # best_model_checkpoint.pt and resolved eval configs
 │   ├── tables/                      # Generated LaTeX and JSON result tables
-│   └── experiments_scripts_figures/ # Per-chapter figures, see mapping below
+│   └── experiments_scripts_figures/ # Per-chapter figures, and their associated scripts
 ├── Benchmarking/                    # Earlier-phase window-based forecasting experiments (pre-streaming)
 ├── Counterfactuals/                 # Earlier-phase counterfactual simulation and plausibility checks
 ├── MealDetection/                   # Base SSM-CGM meal detector, not the meal analysis in this thesis
@@ -65,10 +65,6 @@ kept for project history.
 | 6 | Environmental exposure analysis | `experiments_outputs/experiments_scripts_figures/Environmental_exposure/` |
 | 7 | Interpretability and hidden-state phenotyping | `experiments_outputs/experiments_scripts_figures/Interpretability/` and `Clinical_hidden_state_phenotyping/` |
 
-Each figure's generating script is named the same as the figure file, or close to
-it, and lives in `scripts/`. `experiments_outputs/tables/_scripts/` holds the two
-scripts (`collect_latest_results.py`, `make_report_tables.py`) that assemble the
-result tables from raw run outputs.
 
 ## Reproducing the reported model
 
@@ -84,8 +80,7 @@ python scripts/train_stream_aireadi.py \
 The checkpoint reported in the thesis is
 `experiments_outputs/model/best_model_checkpoint.pt`, the epoch-5
 best-validation checkpoint from a 10-epoch training run (validation pinball loss
-3.286316), evaluated on the `adapt6h_seed42` split (train 1,208, validation 239,
-test 144 participants).
+3.286316), evaluated on the `adapt6h_seed42` split,
 
 ## License
 
