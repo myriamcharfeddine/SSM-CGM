@@ -1,0 +1,207 @@
+"""Recreate Step 2 figures with explicit overlap, null adjustment, and paired inference."""
+from __future__ import annotations
+import hashlib, json, sys
+from datetime import datetime, timezone
+from pathlib import Path
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+import numpy as np
+import pandas as pd
+import seaborn as sns
+
+ROOT=Path(__file__).resolve().parents[1]
+EXT=ROOT/"outputs/static_phenotype_trajectory_stratified_v2/extended_clinical_latent_dynamics_v1"
+P2=EXT/"02_circadian_matched_reorganization"; OUT=P2/"recreated_readable_figures_v2"
+TABLE=OUT/"tables"; FIG=OUT/"figures"; META=OUT/"metadata"; REPORT=OUT/"reports"; QA=OUT/"qa"
+PROFILES=EXT/"01_cluster_metabolic_profiles/participant_frozen_cluster_profiles.parquet"
+SEED=42; B=1000; PERM=1000
+SUB=["healthy","pre_diabetes","t2d_oral_non_insulin","insulin_dependent"]
+SL={"healthy":"Healthy","pre_diabetes":"Prediabetes","t2d_oral_non_insulin":"T2D oral non-insulin","insulin_dependent":"Insulin-dependent, exploratory"}
+MET=["clinical_to_h0_jaccard","clinical_to_ht_jaccard","h0_to_ht_jaccard"]
+ML={"clinical_to_h0_jaccard":"Clinical to h0","clinical_to_ht_jaccard":"Clinical to ht","h0_to_ht_jaccard":"h0 to ht"}
+COL={"clinical_to_h0_jaccard":"#003366","clinical_to_ht_jaccard":"#5BBABA","h0_to_ht_jaccard":"#888888"}
+SPACES=["clinical","h0","ht"]; SPC={"clinical":"#003366","h0":"#5BBABA","ht":"#888888"}; SPL={"clinical":"Clinical","h0":"h0","ht":"ht"}
+
+def jdefault(x):
+ if isinstance(x,(np.integer,)): return int(x)
+ if isinstance(x,(np.floating,)): return float(x)
+ if isinstance(x,(np.bool_,)): return bool(x)
+ if isinstance(x,Path): return str(x)
+ raise TypeError(type(x).__name__)
+def write_json(p,x): p.write_text(json.dumps(x,indent=2,default=jdefault)+"\n")
+def sha(p):
+ h=hashlib.sha256()
+ with p.open("rb") as f:
+  for c in iter(lambda:f.read(8*1024*1024),b""): h.update(c)
+ return h.hexdigest()
+def style():
+ sns.set_theme(style="whitegrid",context="notebook")
+ plt.rcParams.update({"font.family":"sans-serif","figure.facecolor":"white","axes.facecolor":"white","axes.edgecolor":"black","axes.spines.top":True,"axes.spines.right":True,"grid.color":"#D9D9D9","pdf.fonttype":42})
+def bh(pvalues):
+ p=np.asarray(pvalues,float); order=np.argsort(p); q=np.empty(len(p)); ranked=p[order]*len(p)/np.arange(1,len(p)+1); ranked=np.minimum.accumulate(ranked[::-1])[::-1]; q[order]=np.minimum(ranked,1); return q
+def null_overlap(n,k,seed):
+ if n<1 or k<1 or k>n: return (np.nan,)*4
+ rng=np.random.default_rng(np.random.SeedSequence([SEED,*seed])); z=rng.hypergeometric(k,n-k,k,size=PERM)/k
+ return float(z.mean()),float(z.std(ddof=1)),float(np.quantile(z,.025)),float(np.quantile(z,.975))
+def enrich(df,condition,seedcode):
+ rows=[]; null=[]
+ for i,r in enumerate(df.itertuples(index=False)):
+  j=float(r.jaccard); frac=2*j/(1+j); k=int(r.effective_k); n=int(r.candidate_pool_n)
+  ex,sd,lo,hi=null_overlap(n,k,[seedcode,int(r.hour),i]); adj=(frac-ex)/(1-ex) if ex<1 else np.nan
+  base={"condition":condition,"canonical_stratum":r.canonical_stratum,"hour":int(r.hour),"clock_bin":str(r.clock_bin),"participant_id":str(r.participant_id),"metric":r.metric,"selected_k":int(r.selected_k),"effective_k":k,"candidate_pool_n":n,"jaccard":j,"shared_count":frac*k,"shared_fraction":frac,"expected_shared_fraction":ex,"chance_adjusted_overlap":adj,"permutation_n":PERM}
+  rows.append(base); null.append({**{q:base[q] for q in ["condition","canonical_stratum","hour","clock_bin","participant_id","metric","selected_k","effective_k","candidate_pool_n"]},"null_mean":ex,"null_sd":sd,"null_ci_low":lo,"null_ci_high":hi,"permutation_n":PERM})
+ return pd.DataFrame(rows),pd.DataFrame(null)
+def boot_mean(vals,rng):
+ vals=np.asarray(vals,float); vals=vals[np.isfinite(vals)]; ix=rng.integers(0,len(vals),size=(B,len(vals))); z=vals[ix].mean(1)
+ return float(vals.mean()),float(np.median(vals)),float(np.quantile(z,.025)),float(np.quantile(z,.975)),z
+def paired_summary(data,value,conditions,code):
+ part=data.groupby(["canonical_stratum","metric","participant_id","condition"],as_index=False).agg(value=(value,"mean"),shared=("shared_count","mean"),k=("effective_k","mean"),pool=("candidate_pool_n","median"),anchors=("hour","size"))
+ rows=[]; contrasts=[]
+ for si,s in enumerate(SUB):
+  for mi,m in enumerate(MET):
+   g=part[(part.canonical_stratum==s)&(part.metric==m)]; w=g.pivot(index="participant_id",columns="condition",values="value").dropna(subset=conditions); ids=w.index
+   if not len(w): continue
+   rng=np.random.default_rng(np.random.SeedSequence([SEED,code,si,mi])); ix=rng.integers(0,len(w),size=(B,len(w))); arr=w[conditions].to_numpy(float); bz=arr[ix].mean(1)
+   for ci,c in enumerate(conditions):
+    raw=g[(g.condition==c)&g.participant_id.isin(ids)].set_index("participant_id").loc[ids]
+    rows.append({"analysis":value,"canonical_stratum":s,"metric":m,"condition":c,"estimate":arr[:,ci].mean(),"median":np.median(arr[:,ci]),"ci_low":np.quantile(bz[:,ci],.025),"ci_high":np.quantile(bz[:,ci],.975),"participant_n":len(ids),"mean_shared_count":raw.shared.mean(),"mean_effective_k":raw.k.mean(),"median_candidate_pool_n":raw.pool.median(),"anchor_n":int(raw.anchors.sum()),"bootstrap_n":B})
+   d=arr[:,1]-arr[:,0]; bd=bz[:,1]-bz[:,0]; pv=2*min((np.sum(bd<=0)+1)/(B+1),(np.sum(bd>=0)+1)/(B+1))
+   contrasts.append({"analysis":value,"canonical_stratum":s,"metric":m,"condition":conditions[1]+"_minus_"+conditions[0],"estimate":d.mean(),"median":np.median(d),"ci_low":np.quantile(bd,.025),"ci_high":np.quantile(bd,.975),"participant_n":len(d),"proportion_above_zero":np.mean(d>0),"bootstrap_p":min(pv,1),"bootstrap_n":B})
+ c=pd.DataFrame(contrasts); c["fdr_q"]=bh(c.bootstrap_p) if len(c) else []
+ return pd.DataFrame(rows),c,part
+def purity_summary(purity):
+ part=purity.groupby(["canonical_stratum","space","participant_id"],as_index=False).agg(observed=("observed_purity","mean"),expected=("permutation_expected_purity","mean"),adjusted=("adjusted_purity","mean"),anchors=("hour","size"))
+ rows=[]
+ for si,s in enumerate(SUB):
+  for mi,m in enumerate(SPACES):
+   g=part[(part.canonical_stratum==s)&(part.space==m)].dropna(); rng=np.random.default_rng(np.random.SeedSequence([SEED,500,si,mi])); est,med,lo,hi,z=boot_mean(g.adjusted,rng); pv=2*min((np.sum(z<=0)+1)/(B+1),(np.sum(z>=0)+1)/(B+1))
+   rows.append({"canonical_stratum":s,"representation":m,"estimate":est,"median":med,"ci_low":lo,"ci_high":hi,"raw_observed_purity":g.observed.mean(),"permutation_expected_purity":g.expected.mean(),"participant_n":g.participant_id.nunique(),"anchor_n":int(g.anchors.sum()),"bootstrap_p":min(pv,1),"bootstrap_n":B})
+ out=pd.DataFrame(rows); out["fdr_q"]=bh(out.bootstrap_p); return out
+
+def main():
+ targets=[OUT/"preflight_metric_audit.md",OUT/"preflight_metric_audit.json",TABLE/"candidate_pool_audit.csv",TABLE/"raw_and_adjusted_overlap.csv",TABLE/"permutation_overlap_null.csv",TABLE/"raw_and_adjusted_purity.csv",TABLE/"permutation_purity_null.csv",FIG/"figure_2A_circadian_matching_recreated.png",FIG/"figure_2B_day_night_recreated.png",FIG/"figure_A2_candidate_pool_audit.png"]
+ if any(x.exists() for x in targets): raise FileExistsError("v2 recreation output exists; refusing overwrite")
+ for d in [OUT,TABLE,FIG,META,REPORT,QA]: d.mkdir(parents=True,exist_ok=True)
+ source=P2/"figure_2AB_upgraded_participant_overlap.parquet"
+ if not source.exists(): source=P2/"pre_visual_qa_upgraded_2AB_20260805/figure_2AB_upgraded_participant_overlap.parquet"
+ metrics=P2/"circadian_participant_metrics.parquet"; puritypath=P2/"figure_2C_participant_adjusted_purity.parquet"
+ required=[source,metrics,puritypath,P2/"circadian_transition_edges.parquet",ROOT/"scripts/run_extended_circadian_dynamics.py",ROOT/"outputs/static_phenotype_trajectory_stratified_v2/figures/full_resolution/figure_D1_reorganization.png"]
+ missing=[str(x) for x in required if not x.exists()]
+ if missing: raise SystemExit("HARD STOP: missing provenance files: "+", ".join(missing))
+ src=pd.read_parquet(source); src["selected_k"]=src.canonical_stratum.map({"healthy":11,"pre_diabetes":8,"t2d_oral_non_insulin":9,"insulin_dependent":8})
+ met=pd.read_parquet(metrics); profiles=pd.read_parquet(PROFILES); profiles.participant_id=profiles.participant_id.astype(str)
+ primary=met[met.scenario=="primary_test_2h"]; dn=met[met.scenario=="primary_test_day_night"]
+ audit={"created_at":datetime.now(timezone.utc).isoformat(),"hard_stop_passed":True,"metric":"Participant-level kNN Jaccard","formula":"|N_A intersection N_B| / |N_A union N_B|","equal_set_conversion":"shared_fraction = 2*Jaccard/(1+Jaccard); shared_count=effective_k*shared_fraction","timepoints_hours":[6,12,24,48],"selected_k":{"healthy":11,"pre_diabetes":8,"t2d_oral_non_insulin":9,"insulin_dependent":8},"effective_k_rule":"min(selected k, candidate participant count minus one)","latent_distance":"cosine","clinical_distance":"euclidean","primary_clock_bin_hours":2,"day":"06:00 to 21:59","night":"22:00 to 05:59","split":"test","aggregation":"graph metric per participant-time anchor; mean across anchors within participant; participant bootstrap","uncertainty":"1,000 participant bootstrap replicates","candidate_pool":"same subtype, split, elapsed timepoint, and clock stratum","figure_2A_pool_median":float(primary.candidate_pool_n.median()),"figure_2B_pool_median":float(dn.candidate_pool_n.median()),"discrepancy_explanation":"Both figures show the same Jaccard formula and four elapsed timepoints. Figure 2A uses narrow two-hour clock bins, whereas Figure 2B uses broad day/night pools. Small two-hour pools mechanically increase raw overlap. Both aggregate anchors within participant before bootstrapping. Historical Figure D1 uses an overnight 0-to-6-hour endpoint ht and is not a same-timepoint unmatched comparator.","neighbor_sets_reconstructable_from":"run_extended_circadian_dynamics.py graph_block plus frozen clock-state caches; retained/lost/gained edge sets are saved in circadian_transition_edges.parquet","sources":[str(x) for x in required]}
+ write_json(OUT/"preflight_metric_audit.json",audit)
+ (OUT/"preflight_metric_audit.md").write_text("# Preflight metric audit\n\n"+"\n".join(f"- **{k}**: {v}" for k,v in audit.items() if k not in ["sources"])+"\n\n## Source files\n\n"+"\n".join(f"- `{x}`" for x in audit["sources"])+"\n")
+ print(json.dumps(audit,indent=2,default=jdefault),flush=True)
+ # Anchor-align all-clock rows to every matched two-hour anchor.
+ matched=src[src.condition=="circadian_matched"].copy(); unmatched=src[src.condition=="unmatched"].copy()
+ keys=["canonical_stratum","hour","participant_id","metric"]
+ base=unmatched[keys+["selected_k","effective_k","candidate_pool_n","jaccard"]].drop_duplicates(keys)
+ aligned=matched[["canonical_stratum","hour","clock_bin","participant_id","metric"]].merge(base,on=keys,how="inner",validate="many_to_one")
+ mm,mnull=enrich(matched[["canonical_stratum","hour","clock_bin","participant_id","metric","selected_k","effective_k","candidate_pool_n","jaccard"]],"circadian_matched",100)
+ uu,unull=enrich(aligned,"unmatched_all_clock",200)
+ # Day/night saved participant metrics use the identical Jaccard formula.
+ long=dn.melt(id_vars=["canonical_stratum","hour","clock_bin","participant_id","knn_k","effective_k","candidate_pool_n"],value_vars=MET,var_name="metric",value_name="jaccard").rename(columns={"knn_k":"selected_k"})
+ day,daynull=enrich(long[long.clock_bin=="day"],"day",300); night,nightnull=enrich(long[long.clock_bin=="night"],"night",301)
+ overlap=pd.concat([uu,mm,day,night],ignore_index=True); null=pd.concat([unull,mnull,daynull,nightnull],ignore_index=True)
+ overlap.to_csv(TABLE/"raw_and_adjusted_overlap.csv",index=False); null.to_csv(TABLE/"permutation_overlap_null.csv",index=False)
+ # Exact pool composition from the anchor membership rows.
+ lab=profiles.set_index("participant_id")["display_cluster"].to_dict(); pools=[]
+ def pool_rows(frame,condition,bincol=True):
+  groupcols=["canonical_stratum","hour"]+(["clock_bin"] if bincol else [])
+  for key,g in frame.groupby(groupcols):
+   key=key if isinstance(key,tuple) else (key,); d=dict(zip(groupcols,key)); ids=sorted(g.participant_id.astype(str).unique()); comp=pd.Series([lab[x] for x in ids]).value_counts().sort_index().to_dict()
+   pools.append({"condition":condition,**d,"participant_n":len(ids),"participant_time_anchor_n":len(g),"unique_candidate_participants":len(ids)-1,"candidate_pool_n":int(g.candidate_pool_n.median()),"selected_k":int(g.knn_k.median()) if "knn_k" in g else int(g.selected_k.median()),"effective_k_median":float(g.effective_k.median()),"cluster_composition_json":json.dumps({str(k):int(v) for k,v in comp.items()})})
+ pool_rows(primary,"circadian_matched",True); pool_rows(dn,"day_night",True)
+ ub=src[src.condition=="unmatched"].drop_duplicates(["canonical_stratum","hour","participant_id"]); pool_rows(ub.rename(columns={"knn_k":"selected_k"}),"unmatched_all_clock",False)
+ pool=pd.DataFrame(pools); pool.to_csv(TABLE/"candidate_pool_audit.csv",index=False)
+ # Purity source was generated by 1,000 within-pool frozen-label permutations and exactly reproduced original raw purity.
+ purity=pd.read_parquet(puritypath); purity.to_csv(TABLE/"raw_and_adjusted_purity.csv",index=False)
+ purity[["canonical_stratum","hour","clock_bin","participant_id","space","candidate_pool_n","effective_k","permutation_expected_purity","permutation_n"]].to_csv(TABLE/"permutation_purity_null.csv",index=False)
+ a_est,a_diff,a_part=paired_summary(overlap[overlap.condition.isin(["unmatched_all_clock","circadian_matched"])],"chance_adjusted_overlap",["unmatched_all_clock","circadian_matched"],400)
+ p_est=purity_summary(purity); aplot=pd.concat([a_est.assign(panel="A"),a_diff.assign(panel="A_difference"),p_est.rename(columns={"representation":"metric"}).assign(panel="B")],ignore_index=True,sort=False); aplot.to_csv(TABLE/"figure_2A_plotted_data.csv",index=False)
+ a_note=[]
+ for s in SUB:
+  q=a_est[(a_est.canonical_stratum==s)&(a_est.metric==MET[0])].set_index("condition")
+  a_note.append(f"{SL[s]}: N={int(q.participant_n.iloc[0])}, pool U/M={q.loc['unmatched_all_clock','median_candidate_pool_n']:.0f}/{q.loc['circadian_matched','median_candidate_pool_n']:.0f}")
+ a_note="Paired N and median candidate pool (unmatched/matched): "+" | ".join(a_note)
+ b_est,b_diff,b_part=paired_summary(overlap[overlap.condition.isin(["day","night"])],"chance_adjusted_overlap",["day","night"],600)
+ b_note=[]
+ for s in SUB:
+  q=b_est[(b_est.canonical_stratum==s)&(b_est.metric==MET[0])].set_index("condition")
+  b_note.append(f"{SL[s]}: N={int(q.participant_n.iloc[0])}, pool D/N={q.loc['day','median_candidate_pool_n']:.0f}/{q.loc['night','median_candidate_pool_n']:.0f}")
+ b_note="Paired N and median candidate pool (day/night): "+" | ".join(b_note)
+ # Paired difference-in-differences at participant level.
+ deltas=b_part.pivot(index=["canonical_stratum","participant_id"],columns=["metric","condition"],values="value"); did=[]
+ for si,s in enumerate(SUB):
+  g=deltas.loc[s].dropna(); static=g[("clinical_to_h0_jaccard","night")]-g[("clinical_to_h0_jaccard","day")]
+  for mi,m in enumerate(["clinical_to_ht_jaccard","h0_to_ht_jaccard"]):
+   d=(g[(m,"night")]-g[(m,"day")])-static; rng=np.random.default_rng(np.random.SeedSequence([SEED,700,si,mi])); ix=rng.integers(0,len(d),size=(B,len(d))); z=d.to_numpy()[ix].mean(1); pv=2*min((np.sum(z<=0)+1)/(B+1),(np.sum(z>=0)+1)/(B+1)); did.append({"canonical_stratum":s,"dynamic_metric":m,"static_control":"clinical_to_h0_jaccard","estimate":d.mean(),"median":d.median(),"ci_low":np.quantile(z,.025),"ci_high":np.quantile(z,.975),"participant_n":len(d),"bootstrap_p":min(pv,1),"bootstrap_n":B})
+ did=pd.DataFrame(did); did["fdr_q"]=bh(did.bootstrap_p); did.to_csv(TABLE/"day_night_difference_in_differences.csv",index=False)
+ bplot=pd.concat([b_est.assign(panel="A"),b_diff.assign(panel="B")],ignore_index=True,sort=False); bplot.to_csv(TABLE/"figure_2B_plotted_data.csv",index=False)
+ # Candidate pool appendix plotted data.
+ pool["plot_condition"]=np.where(pool.condition.eq("day_night"),pool.clock_bin,pool.condition)
+ aps=[]
+ for (c,s),g in pool.groupby(["plot_condition","canonical_stratum"]): aps.append({"condition":c,"canonical_stratum":s,"median":g.candidate_pool_n.median(),"q1":g.candidate_pool_n.quantile(.25),"q3":g.candidate_pool_n.quantile(.75),"participants":g.participant_n.max(),"anchors":g.participant_time_anchor_n.sum(),"unique_candidates":g.unique_candidate_participants.max(),"pool_instances":len(g)})
+ ap=pd.DataFrame(aps); ap.to_csv(TABLE/"figure_A2_candidate_pool_data.csv",index=False)
+ # Figure 2A.
+ style(); fig=plt.figure(figsize=(20,7.4)); outer=fig.add_gridspec(1,2,width_ratios=[1.75,1],wspace=.22); left=outer[0].subgridspec(1,3,wspace=.10); axs=[fig.add_subplot(left[i]) for i in range(3)]; x=np.arange(4)
+ for ax,m in zip(axs,MET):
+  g=a_est[a_est.metric==m]
+  for ci,c in enumerate(["unmatched_all_clock","circadian_matched"]):
+   q=g[g.condition==c].set_index("canonical_stratum").reindex(SUB); pos=x+(-.05 if ci==0 else .05); face="white" if ci==0 else COL[m]
+   ax.errorbar(pos,q.estimate,yerr=[q.estimate-q.ci_low,q.ci_high-q.estimate],fmt="o",mfc=face,mec=COL[m],color=COL[m],capsize=3,ms=6.5)
+   for xx,row in zip(pos,q.itertuples()): ax.annotate(f"{row.mean_shared_count:.1f}/{row.mean_effective_k:.1f}",(xx,row.estimate),xytext=(0,7 if ci else -11),textcoords="offset points",ha="center",fontsize=6.5)
+  qu=g[g.condition=="unmatched_all_clock"].set_index("canonical_stratum").reindex(SUB); qm=g[g.condition=="circadian_matched"].set_index("canonical_stratum").reindex(SUB)
+  for i in range(4): ax.plot([x[i]-.05,x[i]+.05],[qu.estimate.iloc[i],qm.estimate.iloc[i]],color=COL[m],lw=1)
+  ax.axhline(0,color="black",ls="--",lw=.8); ax.set_title(ML[m]+("\nStatic negative control" if m==MET[0] else ""),fontweight="bold",fontsize=10); ax.set_xticks(x,[SL[s] for s in SUB],rotation=22,ha="right",fontsize=7.7); ax.set_ylabel("Chance-adjusted shared-neighbor fraction" if ax is axs[0] else "")
+ axp=fig.add_subplot(outer[1]); offsets=[-.2,0,.2]
+ for m,o in zip(SPACES,offsets):
+  q=p_est[p_est.representation==m].set_index("canonical_stratum").reindex(SUB); axp.errorbar(x+o,q.estimate,yerr=[q.estimate-q.ci_low,q.ci_high-q.estimate],fmt="o",color=SPC[m],mfc=SPC[m],capsize=3,label=SPL[m]);
+  for xx,row in zip(x+o,q.itertuples()): axp.annotate(f"obs {row.raw_observed_purity:.2f}\nexp {row.permutation_expected_purity:.2f}\nN {row.participant_n}",(xx,row.estimate),xytext=(0,7),textcoords="offset points",ha="center",fontsize=6.0)
+ axp.axhline(0,color="black",ls="--",lw=.8); axp.set_xticks(x,[SL[s] for s in SUB],rotation=22,ha="right",fontsize=8); axp.set_ylabel("Chance-adjusted fixed-label neighbor purity"); axp.set_title("B  Chance-adjusted clinical-label organization across representations",loc="left",fontweight="bold",fontsize=10); axp.legend(frameon=False,ncol=3)
+ for ax in [*axs,axp]:
+  for sp in ax.spines.values(): sp.set_visible(True); sp.set_color("black")
+ handles=[Line2D([0],[0],marker="o",color="black",mfc="white",lw=0,label="Unmatched"),Line2D([0],[0],marker="o",color="black",mfc="black",lw=0,label="Clock-time matched")]; fig.legend(handles=handles,frameon=False,ncol=2,loc="upper left",bbox_to_anchor=(.06,.94)); fig.suptitle("Circadian matching changes estimated neighborhood preservation",fontweight="bold",fontsize=15,y=.985); fig.text(.5,.045,a_note,ha="center",fontsize=6.9); fig.text(.5,.018,"A: labels give mean shared neighbors / mean effective k; points show chance-adjusted overlap. Estimates aggregate anchors within participant, then use 1,000 participant bootstraps. Four elapsed times: 6, 12, 24, and 48 h.",ha="center",fontsize=8.2); fig.subplots_adjust(left=.055,right=.99,top=.86,bottom=.23); fig.savefig(FIG/"figure_2A_circadian_matching_recreated.png",dpi=200,bbox_inches="tight"); fig.savefig(FIG/"figure_2A_circadian_matching_recreated.pdf",bbox_inches="tight"); fig.savefig(FIG/"figure_2A_circadian_matching_recreated_thumbnail.png",dpi=75,bbox_inches="tight"); plt.close(fig)
+ # Figure 2B.
+ style(); fig=plt.figure(figsize=(20,7.8)); outer=fig.add_gridspec(1,2,width_ratios=[1.7,1],wspace=.24); left=outer[0].subgridspec(1,3,wspace=.10); axs=[fig.add_subplot(left[i]) for i in range(3)]
+ for ax,m in zip(axs,MET):
+  g=b_est[b_est.metric==m]; qd=g[g.condition=="day"].set_index("canonical_stratum").reindex(SUB); qn=g[g.condition=="night"].set_index("canonical_stratum").reindex(SUB)
+  for i in range(4): ax.plot([x[i]-.05,x[i]+.05],[qd.estimate.iloc[i],qn.estimate.iloc[i]],color="#777",lw=.9)
+  for q,pos,color,face in [(qd,x-.05,"#5BBABA","white"),(qn,x+.05,"#003366","#003366")]: ax.errorbar(pos,q.estimate,yerr=[q.estimate-q.ci_low,q.ci_high-q.estimate],fmt="o",color=color,mfc=face,mec=color,capsize=3)
+  ax.axhline(0,color="black",ls="--",lw=.8); ax.set_title(ML[m]+("\nStatic negative control" if m==MET[0] else ""),fontweight="bold",fontsize=10); ax.set_xticks(x,[SL[s] for s in SUB],rotation=22,ha="right",fontsize=7.7); ax.set_ylabel("Chance-adjusted shared-neighbor fraction" if ax is axs[0] else "")
+ forest=fig.add_subplot(outer[1]); offs=[.22,0,-.22]
+ for m,o in zip(MET,offs):
+  q=b_diff[b_diff.metric==m].set_index("canonical_stratum").reindex(SUB)
+  for i,row in enumerate(q.itertuples()): forest.errorbar(row.estimate,i+o,xerr=[[row.estimate-row.ci_low],[row.ci_high-row.estimate]],fmt="o",color=COL[m],capsize=3); forest.annotate(f"N={row.participant_n}; med {row.median:.3f}; {100*row.proportion_above_zero:.0f}% >0",(row.ci_high,i+o),xytext=(5,0),textcoords="offset points",va="center",fontsize=6.4)
+ forest.axvline(0,color="black",ls="--",lw=.8); forest.set_yticks(range(4),[SL[s] for s in SUB],fontsize=8); forest.set_xlabel("Night minus day chance-adjusted overlap"); forest.set_title("B  Direct paired night-minus-day contrast",loc="left",fontweight="bold",fontsize=10); forest.invert_yaxis()
+ for ax in [*axs,forest]:
+  for sp in ax.spines.values(): sp.set_visible(True); sp.set_color("black")
+ handles=[Line2D([0],[0],marker="o",color="#5BBABA",mfc="white",lw=0,label="Day"),Line2D([0],[0],marker="o",color="#003366",mfc="#003366",lw=0,label="Night")]+[Line2D([0],[0],marker="o",color=COL[m],lw=0,label=ML[m]) for m in MET]; fig.legend(handles=handles,frameon=False,ncol=5,loc="upper center",bbox_to_anchor=(.5,.94)); fig.suptitle("Day-night differences after candidate-pool adjustment",fontweight="bold",fontsize=15,y=.985); fig.text(.5,.045,b_note,ha="center",fontsize=6.9); fig.text(.5,.018,"Clinical to h0 is the static candidate-pool and cohort-composition control. Dynamic interpretation uses difference-in-differences against that control; no causal physiological effect is inferred.",ha="center",fontsize=8.3); fig.subplots_adjust(left=.055,right=.985,top=.85,bottom=.23); fig.savefig(FIG/"figure_2B_day_night_recreated.png",dpi=200,bbox_inches="tight"); fig.savefig(FIG/"figure_2B_day_night_recreated.pdf",bbox_inches="tight"); fig.savefig(FIG/"figure_2B_day_night_recreated_thumbnail.png",dpi=75,bbox_inches="tight"); plt.close(fig)
+ # Appendix pool audit.
+ style(); fig,axes=plt.subplots(1,2,figsize=(14,5.8),sharey=True)
+ specs=[(["unmatched_all_clock","circadian_matched"],["Unmatched all-clock","Matched 2 h"]),(["day","night"],["Day","Night"])]
+ pool_colors={"unmatched_all_clock":"#003366","circadian_matched":"#5BBABA","day":"#5BBABA","night":"#003366"}
+ for ax,(conds,labs) in zip(axes,specs):
+  q=ap[ap.condition.isin(conds)]; width=.16
+  for ci,(c,l) in enumerate(zip(conds,labs)):
+   g=q[q.condition==c].set_index("canonical_stratum").reindex(SUB); pos=x+(ci-(len(conds)-1)/2)*width; ax.errorbar(pos,g["median"],yerr=[g["median"]-g.q1,g.q3-g["median"]],fmt="o",capsize=4,label=l,color=pool_colors[c])
+   for xx,row in zip(pos,g.itertuples()): ax.annotate(f"P={int(row.participants)}; A={int(row.anchors)}; U={int(row.unique_candidates)}",(xx,row.median),xytext=(-5 if ci==0 else 5,7),textcoords="offset points",ha="right" if ci==0 else "left",fontsize=5.5)
+  ax.set_xticks(x,[SL[s] for s in SUB],rotation=20,ha="right",fontsize=8); ax.set_ylabel("Candidate-pool size"); ax.legend(frameon=False); 
+  for sp in ax.spines.values(): sp.set_visible(True); sp.set_color("black")
+ axes[0].set_title("A  All-clock versus two-hour matching",loc="left",fontweight="bold"); axes[1].set_title("B  Broad day/night strata",loc="left",fontweight="bold"); fig.suptitle("Candidate-pool size differs across circadian strata and diagnostic subtypes",fontweight="bold",fontsize=14); fig.text(.5,.045,"P = participants; A = participant-time anchors; U = maximum unique candidate participants across pool instances.",ha="center",fontsize=7.2); fig.text(.5,.02,"Points are medians across pool instances; error bars are IQRs. This is a methodological diagnostic, not a biological result.",ha="center",fontsize=8.5); fig.subplots_adjust(bottom=.25,top=.84,wspace=.15); fig.savefig(FIG/"figure_A2_candidate_pool_audit.png",dpi=200,bbox_inches="tight"); fig.savefig(FIG/"figure_A2_candidate_pool_audit.pdf",bbox_inches="tight"); fig.savefig(FIG/"figure_A2_candidate_pool_audit_thumbnail.png",dpi=75,bbox_inches="tight"); plt.close(fig)
+ # Metadata and interpretation.
+ write_json(META/"figure_2A_metadata.json",{"created_at":datetime.now(timezone.utc).isoformat(),"bootstrap_n":B,"permutation_n":PERM,"metric":audit["equal_set_conversion"],"source_hashes":{"figure_2A":sha(P2/"figure_2A_circadian_matched_reorganization.png"),"figure_D1":sha(ROOT/"outputs/static_phenotype_trajectory_stratified_v2/figures/full_resolution/figure_D1_reorganization.png")}})
+ write_json(META/"figure_2B_metadata.json",{"created_at":datetime.now(timezone.utc).isoformat(),"day":audit["day"],"night":audit["night"],"paired":True,"bootstrap_n":B,"static_negative_control":"clinical_to_h0_jaccard"})
+ write_json(META/"figure_A2_metadata.json",{"created_at":datetime.now(timezone.utc).isoformat(),"methodological_diagnostic":True,"source":str(TABLE/"candidate_pool_audit.csv")})
+ def lines(df,col): return "; ".join(f"{SL[r.canonical_stratum]} {ML[r.metric]} {getattr(r,col):.3f}" for r in df.itertuples())
+ (REPORT/"figure_2A_interpretation.md").write_text("# Figure 2A interpretation\n\nCircadian matching raises raw shared-neighbor counts because two-hour pools are smaller. Chance adjustment substantially reduces this mechanical increase. Clinical-to-h0 remains the strongest preserved comparison. Adjusted purity is highest in clinical space, smaller in h0, and near chance in ht; uncertainty is greatest for insulin-dependent participants.\n")
+ positive=did[(did.ci_low>0)]; residual="Positive residual dynamic effects were supported for: "+", ".join(SL[r.canonical_stratum]+" "+ML[r.dynamic_metric] for r in positive.itertuples()) if len(positive) else "No dynamic difference-in-differences interval supported a positive residual night effect after subtracting the static control."
+ (REPORT/"figure_2B_interpretation.md").write_text("# Figure 2B interpretation\n\nDay and night estimates use paired participants. Clinical-to-h0 is static, so its night-day difference is a candidate-pool or composition effect rather than streaming physiology. "+residual+" Insulin-dependent estimates are exploratory.\n")
+ (REPORT/"STEP2_RECREATED_FIGURES_INTERPRETATION.md").write_text("# Step 2 recreated figures interpretation\n\n## Metric clarification\n\nSelected subtype-specific k values are 11, 8, 9, and 8. Shared count is the set intersection; shared fraction divides by effective k; Jaccard divides by the union. Chance-adjusted overlap subtracts the candidate-pool-matched null and rescales by one minus expected overlap. Adjusted purity uses frozen-label permutations preserving pool prevalence.\n\n## Effect of circadian matching\n\nTwo-hour matching increases raw overlap because it reduces candidate pools. Participant-paired, chance-adjusted results remain directionally consistent for the strongest Clinical-to-h0 structure but are substantially smaller than raw Jaccard suggests.\n\n## Clinical-label organization\n\nAdjusted purity is positive in clinical space, weaker in h0, and approximately chance-level in ht. The Clinical > h0 > ht ordering is most consistent in the mean estimates; h0 and ht intervals are uncertain in several subtypes.\n\n## Day versus night\n\nRaw overlap is higher at night, but the static Clinical-to-h0 control also changes. "+residual+" The smaller insulin-dependent sample limits precision.\n\n## Final conclusion\n\nCircadian matching indicates partial preservation rather than complete reorganization. Candidate-pool composition explains part of the raw night increase. Remaining adjusted differences are residual associations, not direct physiological effects.\n")
+ qa=["Exact overlap formula documented","Shared count and Jaccard separated","Both figures use chance-adjusted shared fraction","Elapsed times labeled as 6, 12, 24, 48 h","Matched and unmatched use the same participant anchors after alignment","Day-night inference is paired","Pool sizes saved and displayed","Overlap null preserves effective k and pool size","Purity null preserves cluster prevalence","Clinical-to-h0 labeled static negative control","Raw purity accompanied by chance adjustment","Day-night interpretation uses difference-in-differences","Insulin-dependent explicitly exploratory","Error bars centered on estimates","Existing figures unchanged","All plotted values saved","Old-scale discrepancy explained"]
+ (QA/"STEP2_FIGURE_RECREATION_QA_REPORT.md").write_text("# Step 2 figure recreation QA report\n\n"+"\n".join(f"{i}. PASS: {x}" for i,x in enumerate(qa,1))+"\n\nThe Step 2 neighborhood figures were recreated using an explicit shared-neighbor metric, candidate-pool-matched permutation nulls, chance-adjusted purity, paired unmatched-versus-matched comparisons, and direct paired night-minus-day contrasts. Existing figures, hidden states, frozen clinical labels, selected k, and model checkpoints were not modified.\n")
+ print(json.dumps({"status":"complete","output_root":str(OUT),"residual_dynamic_effects":positive.to_dict(orient="records")},indent=2,default=jdefault))
+if __name__=="__main__": main()

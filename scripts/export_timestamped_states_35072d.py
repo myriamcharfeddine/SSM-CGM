@@ -1,0 +1,300 @@
+"""Inference-only export of timestamp-preserving literal 35,072-D states.
+
+The frozen checkpoint, preprocessing object, clean segmenter, and participant
+splits are reused exactly.  One losslessly compressed Parquet file is written
+per participant with a fixed-size-list float32 state column.  Existing Study 1
+artifacts are read only.  The export is resumable at participant boundaries.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+import torch
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from scripts.within_subtype_phase4_extract import (  # noqa: E402
+    CHECKPOINT, DATASET, EXPECTED_VAL_PINBALL, SPLIT_PATH,
+    flatten_state, load_model_from_checkpoint, sha256_file,
+)
+from ssmcgm.data.aireadi import (  # noqa: E402
+    infer_or_validate_schema, make_aireadi_stream_splits,
+    make_participant_streams, prepare_aireadi_panel,
+)
+
+STUDY1 = ROOT / "outputs/static_phenotype_trajectory"
+STUDY2 = ROOT / "outputs/static_phenotype_trajectory_stratified_v2"
+EXTENDED = STUDY2 / "extended_clinical_latent_dynamics_v1"
+ARCHIVE = EXTENDED / "timestamped_state_archive_35072d"
+PARTICIPANTS = ARCHIVE / "participants"
+VALIDATION = ARCHIVE / "validation"
+LOGS = EXTENDED / "logs"
+H0_PATH = STUDY1 / "step2/h0_matrix.parquet"
+SNAPSHOT_DIR = STUDY2 / "phase4_time_resolved_extension/snapshots"
+INTERVAL_MINUTES = 30
+MAX_HOURS = 48
+TARGET_HOURS = [6, 12, 24, 48]
+MAX_OFFSET_MINUTES = 5.1
+VECTOR_DIMENSION = 35072
+VALIDATION_MAX_ABS_TOLERANCE = 0.1
+VALIDATION_RMSE_TOLERANCE = 5e-4
+VALIDATION_COSINE_TOLERANCE = 2e-6
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def write_json(path: Path, value) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2, default=lambda x: float(x) if isinstance(x, np.floating) else int(x) if isinstance(x, np.integer) else str(x)) + "\n")
+
+
+def cosine_distance(a: np.ndarray, b: np.ndarray) -> float:
+    den = float(np.linalg.norm(a) * np.linalg.norm(b))
+    return float(1 - np.dot(a, b) / den) if den else np.nan
+
+
+def participant_paths(pid: str) -> tuple[Path, Path, Path]:
+    root = PARTICIPANTS / f"participant_id={pid}"
+    return root / "states.parquet", root / "index.parquet", VALIDATION / f"participant_id={pid}.json"
+
+
+def write_state_file(path: Path, meta: pd.DataFrame, matrix: np.ndarray) -> None:
+    if matrix.dtype != np.float32 or matrix.ndim != 2 or matrix.shape[1] != VECTOR_DIMENSION:
+        raise ValueError(f"Unexpected state matrix {matrix.shape} {matrix.dtype}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    base = pa.Table.from_pandas(meta, preserve_index=False)
+    flat = pa.array(matrix.reshape(-1), type=pa.float32())
+    states = pa.FixedSizeListArray.from_arrays(flat, VECTOR_DIMENSION)
+    table = base.append_column("state", states)
+    temporary = path.with_suffix(".parquet.incomplete")
+    pq.write_table(table, temporary, compression="zstd", compression_level=3,
+                   row_group_size=len(meta), use_dictionary=False, write_statistics=True)
+    temporary.replace(path)
+
+
+def load_canonical() -> tuple[pd.DataFrame, dict[int, tuple[list[str], np.ndarray, dict[str, int]]]]:
+    h0 = pd.read_parquet(H0_PATH)
+    h0["participant_id"] = h0.participant_id.astype(str)
+    h0 = h0.set_index("participant_id")
+    canonical = {}
+    for hour in TARGET_HOURS:
+        frame = pd.read_parquet(SNAPSHOT_DIR / f"h_t_full_hour{hour:02d}.parquet")
+        frame["participant_id"] = frame.participant_id.astype(str)
+        frame = frame.set_index("participant_id")
+        cols = [c for c in frame.columns if str(c).isdigit()]
+        ids = frame.index.tolist()
+        canonical[hour] = (ids, frame[cols].to_numpy(np.float32), {pid: i for i, pid in enumerate(ids)})
+        del frame
+    return h0, canonical
+
+
+def existing_complete(pid: str) -> bool:
+    state_path, index_path, validation_path = participant_paths(pid)
+    if not (state_path.exists() and index_path.exists() and validation_path.exists()):
+        return False
+    try:
+        pf = pq.ParquetFile(state_path)
+        idx = pd.read_parquet(index_path)
+        val = json.loads(validation_path.read_text())
+        return pf.metadata.num_rows == len(idx) and pf.schema_arrow.field("state").type.list_size == VECTOR_DIMENSION and val.get("passed") is True
+    except Exception:
+        return False
+
+
+def build_panel(spec, pre, participant_set: set[str]):
+    required = set(["participant_id", "timestamp_local", "cgm_glucose_mean", "cgm_count"])
+    required.update(spec.dynamic_reals); required.update(spec.static_reals)
+    required.update(spec.static_categoricals); required.update(spec.scenario_reals)
+    available = set(pq.read_schema(DATASET).names)
+    columns = [c for c in pq.read_schema(DATASET).names if c in required and c in available]
+    data = pd.read_parquet(DATASET, columns=columns)
+    data["participant_id"] = data.participant_id.astype(str)
+    data = data[data.participant_id.isin(participant_set)].copy()
+    schema = infer_or_validate_schema(data)
+    prepared = prepare_aireadi_panel(data, schema)
+    split = make_aireadi_stream_splits(prepared, existing_split_path=SPLIT_PATH)
+    streams = make_participant_streams(prepared, split, schema, feature_spec=spec, preprocessor=pre,
+                                       splits=("train", "validation", "test"))
+    return streams, columns, len(prepared)
+
+
+def rebuild_archive_index(participant_order: list[str]) -> pd.DataFrame:
+    parts=[]
+    for pid in participant_order:
+        _, index_path, _ = participant_paths(pid)
+        parts.append(pd.read_parquet(index_path))
+    index=pd.concat(parts,ignore_index=True)
+    index.to_parquet(ARCHIVE/"state_index.parquet",index=False)
+    return index
+
+
+def aggregate_validation(participant_order: list[str]) -> dict:
+    values=[]
+    for pid in participant_order:
+        _,_,p=participant_paths(pid); values.append(json.loads(p.read_text()))
+    rows=[]
+    passed=True
+    for hour in TARGET_HOURS:
+        ma=np.array([x["hours"][str(hour)]["max_abs_difference"] for x in values],float)
+        rm=np.array([x["hours"][str(hour)]["rmse"] for x in values],float)
+        co=np.array([x["hours"][str(hour)]["cosine_distance"] for x in values],float)
+        hp=bool(np.all(ma<=VALIDATION_MAX_ABS_TOLERANCE) and np.all(rm<=VALIDATION_RMSE_TOLERANCE) and np.all(np.abs(co)<=VALIDATION_COSINE_TOLERANCE))
+        passed &= hp
+        rows.append({"hour":hour,"participant_n":len(values),"max_abs_difference":float(ma.max()),
+                     "median_max_abs_difference":float(np.median(ma)),"max_rmse":float(rm.max()),
+                     "median_rmse":float(np.median(rm)),"max_cosine_distance":float(np.nanmax(co)),"passed":hp})
+    result={"created_at":now(),"passed":passed,"criteria":{"max_abs_tolerance":VALIDATION_MAX_ABS_TOLERANCE,
+            "rmse_tolerance":VALIDATION_RMSE_TOLERANCE,"cosine_tolerance":VALIDATION_COSINE_TOLERANCE,
+            "basis":"Tolerance covers two measured same-checkpoint original-schedule CUDA probes (worst max abs 0.026611; RMSE 0.000210185) while the cosine tolerance remains 2e-6 and the rejected sequential 30-minute chunk drift had RMSE 0.001448."},
+            "timepoints":rows,
+            "unlock_later_phases":passed}
+    pd.DataFrame(rows).to_csv(ARCHIVE/"canonical_representation_validation.csv",index=False)
+    write_json(ARCHIVE/"canonical_representation_validation.json",result)
+    return result
+
+
+def main() -> None:
+    started=time.time()
+    for p in [ARCHIVE,PARTICIPANTS,VALIDATION,LOGS]: p.mkdir(parents=True,exist_ok=True)
+    checkpoint_hash=sha256_file(CHECKPOINT)
+    model,spec,pre,checkpoint=load_model_from_checkpoint(CHECKPOINT,DEVICE)
+    if abs(checkpoint["metrics"]["val_pinball_mgdl"]-EXPECTED_VAL_PINBALL)>1e-4:
+        raise RuntimeError("Checkpoint metric mismatch")
+    h0,canonical=load_canonical()
+    state_cols=[c for c in h0.columns if str(c).isdigit()]
+    if len(state_cols)!=VECTOR_DIMENSION: raise RuntimeError("Frozen h0 dimension mismatch")
+    participant_order=h0.index.tolist(); participant_set=set(participant_order)
+    split_map=h0["split"].to_dict()
+    already={pid for pid in participant_order if existing_complete(pid)}
+    print(f"Checkpoint {checkpoint_hash}; device {DEVICE}; completed participants {len(already)}/{len(participant_order)}",flush=True)
+
+    panel_started=time.time()
+    streams,source_columns,prepared_rows=build_panel(spec,pre,participant_set)
+    streams_by_pid={}
+    for stream in streams: streams_by_pid.setdefault(stream.participant_id,[]).append(stream)
+    if set(streams_by_pid)!=participant_set:
+        raise RuntimeError(f"Clean stream participant mismatch: missing {sorted(participant_set-set(streams_by_pid))[:10]}")
+    panel_seconds=time.time()-panel_started
+    print(f"Built {len(streams)} streams ({prepared_rows} prepared rows) in {panel_seconds:.1f}s",flush=True)
+
+    extraction_started=time.time(); droot=np.sqrt(VECTOR_DIMENSION); completed=len(already)
+    with torch.no_grad():
+        for sequence,pid in enumerate(participant_order,1):
+            if pid in already: continue
+            all_meta=[]; all_states=[]; target_states={h:[] for h in TARGET_HOURS}
+            frozen_h0=h0.loc[pid,state_cols].to_numpy(np.float32)
+            h0_diff=None
+            for raw_stream in streams_by_pid[pid]:
+                stream=raw_stream.to(DEVICE)
+                timestamps=pd.to_datetime(stream.timestamps)
+                elapsed=np.asarray((timestamps-timestamps[0]).total_seconds()/60.0,float)
+                targets=np.arange(INTERVAL_MINUTES,MAX_HOURS*60+1,INTERVAL_MINUTES,dtype=int)
+                positions=[]
+                for target in targets:
+                    pos=int(np.argmin(np.abs(elapsed-target))); offset=float(abs(elapsed[pos]-target))
+                    if offset>MAX_OFFSET_MINUTES: raise RuntimeError(f"{pid} segment {stream.segment_id} target {target}: offset {offset}")
+                    positions.append((target,pos,offset))
+                context=model.encode_static(stream.static_cat,stream.static_cont)
+                boundary_state=model.init_stream(context)
+                computed_h0=flatten_state(boundary_state,0).astype(np.float32)
+                diff=float(np.max(np.abs(computed_h0-frozen_h0)))
+                h0_diff=diff if h0_diff is None else max(h0_diff,diff)
+                prior=frozen_h0; prior_velocity=np.nan; boundary_position=0
+                dynamic=stream.dynamic.unsqueeze(0) if stream.dynamic.dim()==2 else stream.dynamic
+                for target,position,offset in positions:
+                    # Scan from the preceding frozen boundary so the four
+                    # canonical targets retain their original chunk schedule.
+                    candidate_state,_=model.scan_chunk(
+                        dynamic[:,boundary_position:position+1,:],context,boundary_state.clone()
+                    )
+                    vector=flatten_state(candidate_state,0).astype(np.float32)
+                    cumulative_euclidean=float(np.linalg.norm(vector-frozen_h0)/droot)
+                    cumulative_cosine=cosine_distance(vector,frozen_h0)
+                    velocity_euclidean=float(np.linalg.norm(vector-prior)/droot)
+                    velocity_cosine=cosine_distance(vector,prior)
+                    acceleration=float(velocity_euclidean-prior_velocity) if np.isfinite(prior_velocity) else np.nan
+                    ts=pd.Timestamp(timestamps[position]); local_hour=int(ts.hour)
+                    all_meta.append({"participant_id":pid,"split":split_map[pid],"segment_id":int(stream.segment_id),
+                        "segment_start_local":pd.Timestamp(timestamps[0]),"segment_end_local":pd.Timestamp(timestamps[-1]),
+                        "timestamp_local":ts,"elapsed_minutes":int(target),"source_position":int(position),
+                        "target_offset_minutes":offset,"local_hour":local_hour,"clock_bin_2h":int(local_hour//2),
+                        "clock_bin_1h":local_hour,"day_night":"day" if 6<=local_hour<22 else "night",
+                        "state_l2_norm":float(np.linalg.norm(vector)),"euclidean_cumulative":cumulative_euclidean,
+                        "cosine_cumulative":cumulative_cosine,"euclidean_velocity":velocity_euclidean,
+                        "cosine_velocity":velocity_cosine,"latent_acceleration":acceleration})
+                    all_states.append(vector)
+                    if target//60 in TARGET_HOURS and target%60==0: target_states[target//60].append(vector)
+                    prior=vector; prior_velocity=velocity_euclidean
+                    if target in [h*60 for h in TARGET_HOURS]:
+                        boundary_state=candidate_state
+                        boundary_position=position+1
+            meta=pd.DataFrame(all_meta); matrix=np.stack(all_states).astype(np.float32)
+            state_path,index_path,validation_path=participant_paths(pid)
+            write_state_file(state_path,meta,matrix)
+            meta.to_parquet(index_path,index=False)
+            per={"participant_id":pid,"state_rows":len(meta),"segment_count":len(streams_by_pid[pid]),"h0_max_abs_difference":h0_diff,"hours":{},"passed":True}
+            for hour in TARGET_HOURS:
+                # Reproduce the canonical extractor's float32 accumulation and
+                # division order exactly; float64 averaging would be a subtly
+                # different numerical operation.
+                reconstructed=np.zeros(VECTOR_DIMENSION,dtype=np.float32)
+                for segment_vector in target_states[hour]:
+                    reconstructed += segment_vector
+                reconstructed = (reconstructed / len(target_states[hour])).astype(np.float32)
+                ids,arr,mapping=canonical[hour]; frozen=arr[mapping[pid]]
+                delta=reconstructed-frozen
+                metrics={"segment_count":len(target_states[hour]),"max_abs_difference":float(np.max(np.abs(delta))),
+                         "rmse":float(np.sqrt(np.mean(delta.astype(np.float64)**2))),"cosine_distance":cosine_distance(reconstructed,frozen)}
+                metrics["passed"]=metrics["max_abs_difference"]<=VALIDATION_MAX_ABS_TOLERANCE and metrics["rmse"]<=VALIDATION_RMSE_TOLERANCE and abs(metrics["cosine_distance"])<=VALIDATION_COSINE_TOLERANCE
+                per["hours"][str(hour)]=metrics; per["passed"] &= metrics["passed"]
+            write_json(validation_path,per)
+            if not per["passed"]:
+                raise RuntimeError(f"Representation validation failed for participant {pid}: {per}")
+            completed+=1
+            if completed%10==0 or completed==len(participant_order):
+                elapsed_seconds=time.time()-extraction_started
+                rate=completed/max(elapsed_seconds,1)
+                progress={"updated_at":now(),"status":"running","stage":"timestamped_state_export_35072d",
+                    "completed_participants":completed,"expected_participants":len(participant_order),
+                    "completed_state_rows":completed*len(meta),"participant_rate_per_second":rate,
+                    "elapsed_seconds":elapsed_seconds,"estimated_remaining_seconds":(len(participant_order)-completed)/rate if rate else None,
+                    "current_participant":pid,"checkpoint_sha256":checkpoint_hash,"model_retrained":False}
+                write_json(LOGS/"runtime_progress.json",progress)
+                print(f"Exported {completed}/{len(participant_order)} participants in {elapsed_seconds:.1f}s",flush=True)
+
+    index=rebuild_archive_index(participant_order)
+    validation=aggregate_validation(participant_order)
+    report={"created_at":now(),"status":"complete" if validation["passed"] else "failed_validation",
+        "checkpoint_path":str(CHECKPOINT),"checkpoint_sha256":checkpoint_hash,"model_retrained":False,
+        "inference_only":True,"device":DEVICE,"participant_count":len(participant_order),"stream_count":len(streams),
+        "state_row_count":len(index),"state_dimension":VECTOR_DIMENSION,"dtype":"float32",
+        "storage":"One losslessly zstd-compressed Parquet file per participant; state is fixed_size_list<float32>[35072].",
+        "interval_minutes":INTERVAL_MINUTES,"maximum_elapsed_hours":MAX_HOURS,
+        "timestamp_semantics":"Original timestamp_local of the nearest observed 5-minute row; no timestamp was invented or interpolated.",
+        "h0_construction":"encode_static followed by init_stream; depends on the frozen participant static profile and site/category fields, not clock time, calendar time, or segment start.",
+        "source_columns":source_columns,"panel_build_seconds":panel_seconds,"export_seconds":time.time()-extraction_started,
+        "total_seconds":time.time()-started,"validation":validation,"git_commit":subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()}
+    write_json(ARCHIVE/"archive_manifest.json",report)
+    write_json(EXTENDED/"STATE_ARCHIVE_COMPLETE.json",report)
+    write_json(LOGS/"runtime_progress.json",{"updated_at":now(),"status":"complete","stage":"timestamped_state_export_35072d",
+        "completed_participants":len(participant_order),"expected_participants":len(participant_order),"completed_state_rows":len(index),
+        "representation_validation_passed":validation["passed"]})
+    print(json.dumps({k:report[k] for k in ["status","participant_count","stream_count","state_row_count","state_dimension","total_seconds"]},indent=2),flush=True)
+
+
+if __name__ == "__main__":
+    main()
