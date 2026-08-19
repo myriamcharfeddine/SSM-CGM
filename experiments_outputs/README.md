@@ -1,6 +1,6 @@
 
 
-## model/
+## model folder:
 
 - `best_model_checkpoint.pt`: the final trained SSM-CGM Stream model. Despite the
   "10epoch" naming on the eval output folders, the config each eval run actually
