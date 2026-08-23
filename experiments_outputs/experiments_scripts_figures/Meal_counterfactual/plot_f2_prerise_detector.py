@@ -1,4 +1,4 @@
-"""F2: Pre-rise detector latency and operating-point tradeoff -- 2-panel.
+"""F2: pre-rise detector latency and operating-point tradeoff, 2-panel.
 
 Panel L: median detection latency bars for all setups, 37-min Hochsmann wall.
 Panel R: sensitivity vs FP/day scatter (operating-point tradeoff).
@@ -44,8 +44,8 @@ SETUP_META = {
     "cgm_grid_style":       ("CGM grid-style",    "#CC6666",   "D",  False),
 }
 
-fig, (axL, axR) = plt.subplots(1, 2, figsize=(13, 4.8))
-fig.subplots_adjust(wspace=0.38)
+fig, (axL, axR) = plt.subplots(1, 2, figsize=(14.5, 4.8))
+fig.subplots_adjust(wspace=0.42, right=0.86)
 
 # ---- Panel L: latency bars ----
 rows_for_bars = []
@@ -74,13 +74,18 @@ bars = axL.bar(x, bar_latency, color=bar_colors, edgecolor="white", linewidth=0.
 
 for bar, val in zip(bars, bar_latency):
     axL.text(bar.get_x() + bar.get_width() / 2,
-             max(bar.get_height(), 0) + 0.8,
+             max(bar.get_height(), 0) + 1.8,
              f"{val:.0f} min", ha="center", va="bottom", fontweight="bold", fontsize=8)
+    if val == 0:
+        # zero-latency bars are invisible otherwise -- mark the baseline point
+        axL.scatter([bar.get_x() + bar.get_width() / 2], [0],
+                    color=bar.get_facecolor(), edgecolor="black",
+                    linewidths=0.8, s=45, zorder=4)
 
 axL.axhline(HOCHSMANN_MIN, ls=":", lw=2, color=C_EVENT, zorder=3,
             label=f"Hochsmann wall {HOCHSMANN_MIN} min (CGM-only reference)")
-axL.text(len(bar_labels) - 0.5, HOCHSMANN_MIN + 0.8, f"{HOCHSMANN_MIN} min (Hochsmann wall)",
-         color=C_EVENT, fontsize=7.5, ha="right")
+axL.text(0.2, HOCHSMANN_MIN + 1.6, f"{HOCHSMANN_MIN} min (Hochsmann wall)",
+         color=C_EVENT, fontsize=7.5, ha="left")
 axL.set_xticks(x)
 axL.set_xticklabels(bar_labels, rotation=30, ha="right", fontsize=7.5)
 axL.set_ylabel("Median detection latency (min)\n(0 = fires at onset, negative = pre-rise)")
@@ -91,6 +96,9 @@ axL.legend(fontsize=7.5, loc="upper left")
 despine(axL)
 
 # ---- Panel R: sensitivity vs FP/day scatter ----
+# Labels use a shared legend outside the plot rather than inline text: several
+# points (e.g. G_online_state / H_online_full_state) share near-identical
+# coordinates and inline labels collided badly on top of each other.
 for _, row in df.iterrows():
     meta = SETUP_META.get(row["setup"])
     if meta is None:
@@ -99,20 +107,18 @@ for _, row in df.iterrows():
     axR.scatter(float(row["fp_per_day"]), float(row["sensitivity"]),
                 color=color, marker=marker, s=100, zorder=3,
                 label=label, edgecolors="white", linewidths=0.8)
-    axR.annotate(
-        f"  {label}\n  ({row['fp_per_day']:.1f} FP/d, {row['sensitivity']:.2f})",
-        xy=(float(row["fp_per_day"]), float(row["sensitivity"])),
-        fontsize=6.5, color=color,
-    )
 
 axR.set_xlabel("False positives per day")
 axR.set_ylabel("Sensitivity at selected threshold")
 axR.set_title("Sensitivity vs. FP/day tradeoff;\nearly detectors trade FP/day for lead time",
               fontweight="bold")
+axR.margins(x=0.12, y=0.12)
+axR.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=7.5,
+           frameon=True, borderaxespad=0.0, handletextpad=0.6)
 despine(axR)
 
 fig.suptitle(
-    "F2: Pre-rise wearable detector -- breaks the 37-min CGM-only wall "
+    "F2: pre-rise wearable detector breaks the 37-min CGM-only wall "
     "at the cost of higher FP rate",
     fontweight="bold", fontsize=10, y=1.02,
 )
