@@ -6,7 +6,7 @@ Supervised by Chirag Patel and Shakson Isaac (Harvard University DBMI) and Maria
 ## Model
 
 All forecasting in this repository runs on **SSM-CGM-Stream**, a Mamba-2-based
-streaming state-space architecture designed by **Shakson Isaac**. This repository
+streaming state-space architecture. This repository
 does not introduce a new architecture. It ports SSM-CGM-Stream to the AI-READI
 multimodal cohort and builds every downstream analysis in the thesis on top of it:
 forecasting and personalization, event-aware scenario reasoning, environmental
